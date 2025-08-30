@@ -59,6 +59,10 @@ class SystemMonitor:
             
             # Set running flag before starting thread
             self.running = True
+            
+            # Collect initial metrics immediately
+            self._collect_system_metrics()
+            
             self.monitoring_thread.start()
             
             return True
