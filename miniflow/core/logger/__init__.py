@@ -1,67 +1,62 @@
 """
-MiniFlow Logging Module
-
-Provides structured JSON logging with correlation ID support and async capabilities.
+MiniFlow Logger initialization module
+Simplified interface for logger setup and access
 """
 
+from typing import Optional, Dict, Any
 from .logger import AsyncLogger
-from .levels import LogLevel
-from .context import (
-    get_correlation_id,
-    set_correlation_id,
-    generate_correlation_id,
-    with_correlation_id,
-    correlation_context,
-    ensure_correlation_id
-)
-from .formatters import JSONFormatter, PlainTextFormatter
-from .handlers import RotatingFileHandler, ConsoleHandler
-from .utils import handle_logging_error, get_context_mode, SimpleCircuitBreaker
-from .registry import (
-    LoggerConfig, ModuleLoggerConfig,  # For advanced configuration
-    get_module_logger, register_module_config  # Registry functions
-)
 from .handler_factory import create_standard_handlers
 
-__all__ = [
-    'AsyncLogger',
-    'LogLevel', 
-    'JSONFormatter',
-    'PlainTextFormatter',
-    'RotatingFileHandler',
-    'ConsoleHandler',
-    'get_correlation_id',
-    'set_correlation_id',
-    'generate_correlation_id',
-    'with_correlation_id',
-    'correlation_context',
-    'ensure_correlation_id',
-    'get_logger',
-    'setup_logging',
-    'shutdown_logging',
-    'handle_logging_error',
-    'get_context_mode',
-    'SimpleCircuitBreaker',
-    'LoggerConfig',
-    'ModuleLoggerConfig',
-    'get_module_logger',
-    'register_module_config'
-]
 
-# Simplified central logger - use registry for advanced features
-_simple_logger = None
+# Global logger registry to avoid duplicate handlers
+_logger_registry: Dict[str, AsyncLogger] = {}
+_simple_logger: Optional[AsyncLogger] = None
 
 
-# LoggerConfig moved to registry.py to avoid duplication  
-# Use ModuleLoggerConfig from registry for all configuration needs
+def clear_registry():
+    """Clear the global logger registry"""
+    global _logger_registry, _simple_logger
+    _logger_registry.clear()
+    _simple_logger = None
 
 
-# CentralLogger sınıfı kaldırıldı - kullanılmıyordu
+async def shutdown_all_loggers():
+    """Shutdown all registered loggers"""
+    for logger in _logger_registry.values():
+        await logger.shutdown()
+    
+    if _simple_logger:
+        await _simple_logger.shutdown()
+    
+    clear_registry()
+
+
+def list_loggers() -> list:
+    """Get list of registered logger names"""
+    names = list(_logger_registry.keys())
+    if _simple_logger:
+        names.append("miniflow_simple")
+    return names
+
+
+def get_logger_info(name: str) -> Optional[Dict[str, Any]]:
+    """Get logger information"""
+    logger = _logger_registry.get(name) or (_simple_logger if name == "miniflow_simple" else None)
+    
+    if not logger:
+        return None
+    
+    return {
+        "name": logger.name,
+        "level": logger.level.name,
+        "handler_count": len(logger.handlers),
+        "enabled": True
+    }
 
 
 def get_logger(name: str = None) -> AsyncLogger:
     """
-    Simple logger instance - for advanced features use registry module
+    Get logger instance - reuses existing configured loggers
     
     Args:
         name: Logger adı (modül/servis adı)
@@ -72,8 +67,12 @@ def get_logger(name: str = None) -> AsyncLogger:
     global _simple_logger
     
     if name:
-        # Return named logger instance
-        return AsyncLogger(name)
+        # Check if we already have a configured logger
+        if name in _logger_registry:
+            return _logger_registry[name]
+        
+        # Create new logger without default handlers (will be configured by setup_logging)
+        return AsyncLogger(name, handlers=[])
     
     # Return simple central logger
     if _simple_logger is None:
@@ -105,7 +104,7 @@ def setup_logging(
         console_output: Terminal'e yazdırılsın mı?
         
     Returns:
-        Simple logger instance
+        Configured logger instance
         
     Raises:
         ValueError: Geçersiz parametreler için
@@ -134,14 +133,20 @@ def setup_logging(
     
     max_tasks = 1000  # Default for simple logger
     
-    global _simple_logger
+    # Extract logger name from filename
+    import os
+    logger_name = os.path.splitext(os.path.basename(filename))[0]
     
-    # Create or reuse simple logger
-    if _simple_logger is None:
-        _simple_logger = AsyncLogger("miniflow_setup", level=level, max_tasks=max_tasks)
+    # Check if we already have this logger
+    if logger_name in _logger_registry:
+        configured_logger = _logger_registry[logger_name]
+    else:
+        # Create new logger without default handlers
+        configured_logger = AsyncLogger(logger_name, level=level, max_tasks=max_tasks, handlers=[])
+        _logger_registry[logger_name] = configured_logger
     
     # Clear existing handlers
-    _simple_logger.handlers.clear()
+    configured_logger.handlers.clear()
     
     # Use handler factory for consistent handler creation
     handlers = create_standard_handlers(
@@ -157,9 +162,9 @@ def setup_logging(
     
     # Add all handlers
     for handler in handlers:
-        _simple_logger.add_handler(handler)
+        configured_logger.add_handler(handler)
     
-    return _simple_logger
+    return configured_logger
 
 
 # Varsayılan merkezi logger instance'ı kaldırıldı - kullanılmıyordu
@@ -167,25 +172,13 @@ def setup_logging(
 
 def shutdown_logging() -> None:
     """Simplified logging system shutdown"""
-    global _simple_logger
+    global _logger_registry, _simple_logger
+    
+    # Clear handlers from all loggers
+    for logger in _logger_registry.values():
+        logger.clear_handlers()
     
     if _simple_logger:
-        try:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(_simple_logger.shutdown())
-                else:
-                    loop.run_until_complete(_simple_logger.shutdown())
-            except RuntimeError:
-                pass  # No event loop
-        except Exception as e:
-            handle_logging_error(e, "Logging shutdown error")
-        finally:
-            _simple_logger = None
-
-
-# Python shutdown sırasında logging'i kapat
-import atexit
-atexit.register(shutdown_logging)
+        _simple_logger.clear_handlers()
+    
+    clear_registry()

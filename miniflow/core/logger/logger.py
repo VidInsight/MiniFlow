@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Union, Set
 
 from .context import get_correlation_id, ensure_correlation_id
-from .formatters import JSONFormatter
+from .formatters import JSONFormatter, PlainTextFormatter
 from .utils import handle_logging_error, get_context_mode, SimpleCircuitBreaker
 from .levels import LogLevel
 
@@ -59,7 +59,6 @@ class LogRecord:
             record.update(exception_data)
         
         return record
-
 
 
 
@@ -123,46 +122,45 @@ class AsyncLogger:
 
     def _track_task(self, task: asyncio.Task) -> None:
         """Robust task tracking with fallback strategies to prevent memory leaks."""
-        if self.max_tasks <= 0:
-            return
-        
-        # Strategy 1: Try immediate tracking
-        acquired = self._task_lock.acquire(False)
-        if acquired:
-            try:
-                self._cleanup_completed_tasks()
+        try:
+            with self._task_lock:
                 if len(self._active_tasks) < self.max_tasks:
                     self._active_tasks.add(task)
                     task.add_done_callback(self._on_task_done)
                 else:
-                    # Strategy 2: Force cleanup oldest tasks
-                    self._force_cleanup_old_tasks(10)
-                    self._active_tasks.add(task)
-                    task.add_done_callback(self._on_task_done)
-            finally:
-                self._task_lock.release()
-        else:
-            # Strategy 3: Defer tracking to background
-            self._defer_task_tracking(task)
+                    # Too many tasks: cleanup old done tasks
+                    done_tasks = {t for t in self._active_tasks if t.done()}
+                    self._active_tasks.difference_update(done_tasks)
+                    
+                    # If still too many, drop this task (avoid memory leak)
+                    if len(self._active_tasks) < self.max_tasks:
+                        self._active_tasks.add(task)
+                        task.add_done_callback(self._on_task_done)
+                    else:
+                        # Cancel to avoid leak
+                        task.cancel()
+        except Exception:
+            # Fail-safe: avoid breaking logging
+            pass
 
-    def _cleanup_completed_tasks(self):
-        """Efficient cleanup of completed tasks."""
-        self._active_tasks = {t for t in self._active_tasks if not t.done()}
-
-    def _force_cleanup_old_tasks(self, count: int):
-        """Forcefully cancel oldest tasks to prevent memory leaks."""
-        tasks_to_cancel = list(self._active_tasks)[:count]
-        for task in tasks_to_cancel:
-            task.cancel()
-            self._active_tasks.discard(task)
-
-    def _defer_task_tracking(self, task: asyncio.Task):
-        """Fallback: minimal tracking without lock to prevent memory leaks."""
-        # Best effort cleanup callback to prevent basic leak
-        task.add_done_callback(lambda t: None)
+    async def _send_to_handler(self, handler, formatted_message: str) -> None:
+        """Handler'a async mesaj gönder."""
+        try:
+            handler_lock = self._get_handler_lock(handler)
+            async with handler_lock:
+                # Use sync emit for thread safety
+                if hasattr(handler, 'emit_sync'):
+                    handler.emit_sync(formatted_message)
+                elif hasattr(handler, 'emit'):
+                    await handler.emit(formatted_message)
+                else:
+                    # Fallback
+                    print(formatted_message)
+        except Exception as e:
+            handle_logging_error(e, f"Handler async ({handler.__class__.__name__})")
 
     def _on_task_done(self, task: asyncio.Task) -> None:
-        """Cleanup callback when a tracked task finishes."""
+        """Task completion callback to remove from tracking."""
         with self._task_lock:
             self._active_tasks.discard(task)
     
@@ -197,8 +195,8 @@ class AsyncLogger:
         # Import'ları burada yap (circular import'u önlemek için)
         from .handlers import ConsoleHandler, RotatingFileHandler
         
-        # Console handler
-        console_handler = ConsoleHandler()
+        # Console handler with PlainTextFormatter (fixed)
+        console_handler = ConsoleHandler(formatter=PlainTextFormatter())
         self.add_handler(console_handler)
         
         # File handler (size-based rotation)
@@ -217,14 +215,9 @@ class AsyncLogger:
         exception_info: Optional[tuple] = None,
         logger_name: Optional[str] = None
     ) -> LogRecord:
-        """Ortak log record oluşturma metodu"""
-        if not self.is_enabled_for(level):
-            return None
-        
-        # Correlation ID'yi garanti et
+        """Create a log record with context information."""
         ensure_correlation_id()
         
-        # Log record oluştur (logger_name override edilebilir)
         return LogRecord(
             level=level,
             message=message,
@@ -232,62 +225,32 @@ class AsyncLogger:
             extra_fields=extra_fields,
             exception_info=exception_info
         )
-    
 
-    
-    async def _send_to_handler(self, handler, formatted_message: str) -> None:
-        """Send message with robust error handling and lock management."""
-        lock = self._get_handler_lock(handler)
-        timeout = getattr(handler, 'emit_timeout', 2.0)
+    def _should_log(self, level: LogLevel) -> bool:
+        """Check if message should be logged (level filter + circuit breaker)."""
+        # Level check
+        if not self.is_enabled_for(level):
+            return False
         
-        try:
-            # Use wait_for for Python 3.10 compatibility
-            async with lock:
-                await asyncio.wait_for(
-                    handler.emit(formatted_message), 
-                    timeout=timeout
-                )
-        except asyncio.TimeoutError:
-            # Lock automatically released by context manager
-            handle_logging_error(
-                TimeoutError(f"Handler timeout: {timeout}s"), 
-                f"Handler ({handler.__class__.__name__})"
-            )
-            # Consider marking handler as failed
-            self._mark_handler_failed(handler)
-        except Exception as e:
-            handle_logging_error(e, f"Handler ({handler.__class__.__name__})")
-            self._mark_handler_failed(handler)
-
-    def _mark_handler_failed(self, handler):
-        """Mark handler as temporarily failed."""
-        if not hasattr(self, '_failed_handlers'):
-            self._failed_handlers = {}
+        # Circuit breaker check
+        if not self._circuit_breaker.should_allow():
+            return False
         
-        self._failed_handlers[handler] = time.time()
-        
-        # Auto-recovery after 60 seconds
-        asyncio.create_task(self._recover_handler(handler, 60))
-
-    async def _recover_handler(self, handler, delay: float):
-        """Attempt to recover a failed handler."""
-        await asyncio.sleep(delay)
-        self._failed_handlers.pop(handler, None)
+        return True
 
     def _send_to_handler_sync(self, handler, formatted_message: str) -> None:
-        """Send a formatted message to a handler synchronously (best-effort)."""
+        """Handler'a sync mesaj gönder (improved error handling)."""
         try:
+            # Thread-safe sync emit
             if hasattr(handler, 'emit_sync'):
                 handler.emit_sync(formatted_message)
+            elif hasattr(handler, 'emit'):
+                # Async emit in sync context (fallback)
+                asyncio.create_task(handler.emit(formatted_message))
             else:
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(handler.emit(formatted_message))
-                    else:
-                        loop.run_until_complete(handler.emit(formatted_message))
-                except RuntimeError:
-                    pass
+                # Final fallback
+                print(formatted_message)
+
         except Exception as e:
             handle_logging_error(e, f"Handler sync ({handler.__class__.__name__})")
 
@@ -331,12 +294,29 @@ class AsyncLogger:
         exception_info: Optional[tuple] = None,
         logger_name: Optional[str] = None
     ) -> None:
-        """Async log metodu"""
-        record = self._create_log_record(level, message, extra_fields, exception_info, logger_name)
-        if record:
-            # No global lock: reduce contention
+        """Async logging implementation (core method)."""
+        try:
+            if not self._should_log(level):
+                return
+
+            record = self._create_log_record(
+                level=level,
+                message=message,
+                extra_fields=extra_fields,
+                exception_info=exception_info,
+                logger_name=logger_name
+            )
+
             self._format_and_send_to_handlers(record, use_sync=False)
-    
+            
+            # Circuit breaker success
+            self._circuit_breaker.record_success()
+            
+        except Exception as e:
+            # Circuit breaker failure
+            self._circuit_breaker.record_failure()
+            handle_logging_error(e, "AsyncLogger._log_async")
+
     def _log_sync(
         self,
         level: LogLevel,
@@ -345,124 +325,83 @@ class AsyncLogger:
         exception_info: Optional[tuple] = None,
         logger_name: Optional[str] = None
     ) -> None:
-        """Sync log metodu"""
-        record = self._create_log_record(level, message, extra_fields, exception_info, logger_name)
-        if record:
-            self._format_and_send_to_handlers(record, use_sync=True)
-    
-
-
-    # Simplified logging methods - dynamic context detection
-    def _create_log_method(self, level: LogLevel):
-        """Log seviyesi için metod oluştur - optimized context detection with circuit breaker"""
-        def log_func(message: str, **kwargs):
-            # Circuit breaker check
-            if not self._circuit_breaker.should_allow():
-                return  # Skip logging if circuit is open
-            
-            # Extract special kwargs
-            logger_name = kwargs.pop('logger_name', None)
-            exception_info = kwargs.pop('exception_info', None)
-            
-            try:
-                # Optimized context detection with thread-local caching
-                if get_context_mode():
-                    try:
-                        loop = asyncio.get_running_loop()
-                        task = loop.create_task(self._log_async(level, message, kwargs, exception_info, logger_name))
-                        self._track_task(task)
-                        self._circuit_breaker.record_success()
-                    except Exception as e:
-                        # Fallback to sync on error
-                        handle_logging_error(e, "Async logging fallback")
-                        self._log_sync(level, message, kwargs, exception_info, logger_name)
-                        self._circuit_breaker.record_failure()
-                else:
-                    # Sync context
-                    self._log_sync(level, message, kwargs, exception_info, logger_name)
-                    self._circuit_breaker.record_success()
-            except Exception as e:
-                self._circuit_breaker.record_failure()
-                handle_logging_error(e, "Logging failed")
-        return log_func
-
-    # Log metodları - simplified
-    @property
-    def debug(self):
-        return self._create_log_method(LogLevel.DEBUG)
-    
-    @property
-    def info(self):
-        return self._create_log_method(LogLevel.INFO)
-    
-    @property
-    def warning(self):
-        return self._create_log_method(LogLevel.WARNING)
-    
-    @property
-    def error(self):
-        return self._create_log_method(LogLevel.ERROR)
-    
-    @property
-    def critical(self):
-        return self._create_log_method(LogLevel.CRITICAL)
-
-    # Exception metodları
-    def exception(self, message: str, **kwargs) -> None:
-        # Circuit breaker check
-        if not self._circuit_breaker.should_allow():
-            return  # Skip logging if circuit is open
-        
-        exc_info = sys.exc_info()
-        kwargs['exception_info'] = exc_info
-        
+        """Sync logging implementation (performance optimized)."""
         try:
-            # Use the same optimized context detection logic
-            if get_context_mode():
-                try:
-                    loop = asyncio.get_running_loop()
-                    task = loop.create_task(self._log_async(LogLevel.ERROR, message, kwargs))
-                    self._track_task(task)
-                    self._circuit_breaker.record_success()
-                except Exception as e:
-                    handle_logging_error(e, "Exception logging fallback")
-                    self._log_sync(LogLevel.ERROR, message, kwargs)
-                    self._circuit_breaker.record_failure()
-            else:
-                self._log_sync(LogLevel.ERROR, message, kwargs)
-                self._circuit_breaker.record_success()
-        except Exception as e:
-            self._circuit_breaker.record_failure()
-            handle_logging_error(e, "Exception logging failed")
-    
-    async def shutdown(self) -> None:
-        """Logger'ı kapat - tüm handler'ları durdur"""
-        # Cancel and await tracked tasks
-        with self._task_lock:
-            tasks = list(self._active_tasks)
-            self._active_tasks.clear()
-        if tasks:
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Stop handlers
-        for handler in self.handlers:
-            try:
-                await handler.stop()
-            except Exception as e:
-                handle_logging_error(e, f"Handler shutdown ({handler.__class__.__name__})")
-    
-    def __del__(self):
-        """Destructor - cleanup"""
-        try:
-            # Python shutdown sırasında asyncio kullanma
-            if not sys.meta_path:  # Python shutting down
+            if not self._should_log(level):
                 return
-                
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self.shutdown())
-        except (RuntimeError, ImportError):
-            pass  # Event loop yok veya Python shutting down
+
+            record = self._create_log_record(
+                level=level,
+                message=message,
+                extra_fields=extra_fields,
+                exception_info=exception_info,
+                logger_name=logger_name
+            )
+
+            self._format_and_send_to_handlers(record, use_sync=True)
+            
+            # Circuit breaker success
+            self._circuit_breaker.record_success()
+            
+        except Exception as e:
+            # Circuit breaker failure
+            self._circuit_breaker.record_failure()
+            handle_logging_error(e, "AsyncLogger._log_sync")
+
+    def debug(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        """Debug level log"""
+        if get_context_mode() == "async":
+            asyncio.create_task(self._log_async(LogLevel.DEBUG, message, extra))
+        else:
+            self._log_sync(LogLevel.DEBUG, message, extra)
+
+    def info(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        """Info level log"""
+        if get_context_mode() == "async":
+            asyncio.create_task(self._log_async(LogLevel.INFO, message, extra))
+        else:
+            self._log_sync(LogLevel.INFO, message, extra)
+
+    def warning(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        """Warning level log"""
+        if get_context_mode() == "async":
+            asyncio.create_task(self._log_async(LogLevel.WARNING, message, extra))
+        else:
+            self._log_sync(LogLevel.WARNING, message, extra)
+
+    def error(self, message: str, extra: Optional[Dict[str, Any]] = None, exc_info: Optional[tuple] = None) -> None:
+        """Error level log"""
+        if get_context_mode() == "async":
+            asyncio.create_task(self._log_async(LogLevel.ERROR, message, extra, exc_info))
+        else:
+            self._log_sync(LogLevel.ERROR, message, extra, exc_info)
+
+    def critical(self, message: str, extra: Optional[Dict[str, Any]] = None, exc_info: Optional[tuple] = None) -> None:
+        """Critical level log"""
+        if get_context_mode() == "async":
+            asyncio.create_task(self._log_async(LogLevel.CRITICAL, message, extra, exc_info))
+        else:
+            self._log_sync(LogLevel.CRITICAL, message, extra, exc_info)
+
+    def exception(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        """Exception level log (same as error but with automatic exception info)"""
+        exc_info = sys.exc_info() if sys.exc_info()[0] is not None else None
+        self.error(message, extra, exc_info)
+
+    async def shutdown(self) -> None:
+        """Async cleanup of resources."""
+        try:
+            # Wait for all pending tasks with timeout
+            if self._active_tasks:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._active_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+        except asyncio.TimeoutError:
+            # Cancel remaining tasks
+            for task in self._active_tasks:
+                task.cancel()
+        finally:
+            # Clear resources
+            self._active_tasks.clear()
+            self._handler_locks.clear()
