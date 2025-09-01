@@ -114,16 +114,6 @@ class BaseModel(Base):
 
         return result
 
-class AuditLog(BaseModel):
-    __prefix__ = "AL"
-    __tablename__ = 'audit_logs'
-
-    table_name = Column(String(100), nullable=False, index=True)
-    record_id = Column(String(20), nullable=False, index=True)
-    action = Column(Enum(AuditAction), nullable=False, index=True)
-    old_values = Column(JSON, nullable=True)
-    new_values = Column(JSON, nullable=True)
-
 class EnvironmentVariable(BaseModel):
     __prefix__ = "EV"
     __tablename__ = 'environment_variables'
