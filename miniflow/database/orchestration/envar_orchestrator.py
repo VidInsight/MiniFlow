@@ -2,6 +2,8 @@ from typing import List, Optional
 from miniflow.database.models import EnvironmentVariable, VariableScope, VariableType
 from miniflow.database.orchestration.base_orchestrator import BaseOrchestrator, with_session
 
+from miniflow.core.exceptions import OrchestrationError
+
 
 class EnvironmentVariableOrchestrator(BaseOrchestrator):
     """
@@ -12,206 +14,216 @@ class EnvironmentVariableOrchestrator(BaseOrchestrator):
     """
 
     @with_session
-    def create_record(self, session, name: str, value: str, **kwargs) -> EnvironmentVariable:
+    def create_environment_variable(self, session, name: str, value: str, **kwargs) -> EnvironmentVariable:
         """
-        Create new environment variable.
-        
+        Create a new environment variable.
+
         Args:
-            name: Variable name
-            value: Variable value
-            **kwargs: Additional parameters (scope, type, description)
-            
+            session: Database session
+            name (str): Name of the environment variable
+            value (str): Value of the environment variable
+            **kwargs: Additional fields like description, variable_type, scope etc.
+
         Returns:
-            Created EnvironmentVariable instance
+            EnvironmentVariable: Created environment variable instance
+
+        Raises:
+            OrchestrationError: If variable with same name already exists or validation fails
         """
-        return self.envar_crud.create_environment_variable(session, name, value, **kwargs)
+        try:
+            # Check if variable already exists
+            existing = self.envar_crud.find_by_name(session, name)
+            if existing:
+                context = self._create_error_context("create", name=name)
+                raise OrchestrationError(f"Environment variable '{name}' already exists", context=context)
+
+            return self.envar_crud.create_environment_variable(session, name=name, value=value, **kwargs)
+        except Exception as e:
+            context = self._create_error_context("create", name=name)
+            raise OrchestrationError(str(e), context=context) from e
 
     @with_session
-    def get_record_by_id(self, session, record_id: str) -> Optional[EnvironmentVariable]:
+    def get_environment_variable_by_id(self, session, record_id: str) -> Optional[EnvironmentVariable]:
         """
         Get environment variable by ID.
-        
+
         Args:
-            record_id: Variable ID
-            
+            session: Database session
+            record_id (str): ID of the environment variable
+
         Returns:
-            EnvironmentVariable instance or None
+            Optional[EnvironmentVariable]: Environment variable if found, None otherwise
+
+        Raises:
+            OrchestrationError: If database query fails
         """
-        return self.envar_crud.find_by_id(session, record_id)
+        try:
+            return self.envar_crud.find_by_id(session, record_id)
+        except Exception as e:
+            context = self._create_error_context("get_by_id", record_id=record_id)
+            raise OrchestrationError(str(e), context=context) from e
 
     @with_session
-    def get_record_by_name(self, session, name: str) -> Optional[EnvironmentVariable]:
+    def get_environment_variable_by_name(self, session, name: str) -> Optional[EnvironmentVariable]:
         """
         Get environment variable by name.
 
         Args:
-            name: Variable name
+            session: Database session
+            name (str): Name of the environment variable
 
         Returns:
-            EnvironmentVariable instance or None
+            Optional[EnvironmentVariable]: Environment variable if found, None otherwise
+
+        Raises:
+            DatabaseQueryError: If database query fails
         """
-        return self.envar_crud.find_by_name(session, name)
+        try:
+            return self.envar_crud.find_by_name(session, name)
+        except Exception as e:
+            context = self._create_error_context("get_by_name", name=name)
+            raise OrchestrationError(str(e), context=context) from e
 
     @with_session
-    def update_record_by_name(self, session, name: str, value: str, **kwargs) -> EnvironmentVariable:
-        """
-        Update environment variable.
-        
-        Args:
-            name: Variable name
-            value: New value
-            **kwargs: Additional parameters to update
-            
-        Returns:
-            Updated EnvironmentVariable instance
-        """
-        variable = self.envar_crud.find_by_name(session, name)
-        if not variable:
-            self._handle_not_found("EnvironmentVariable", name, "update_record_by_name")
-        
-        return self.envar_crud.update_environment_variable(session, variable.id, value=value, **kwargs)
-
-    @with_session
-    def update_record_by_id(self, session, record_id: str, **kwargs) -> EnvironmentVariable:
-        """
-        Update environment variable.
-
-        Args:
-            record_id: Variable ID
-            **kwargs: Parameters to update
-
-        Returns:
-            Updated EnvironmentVariable instance
-        """
-        return self.envar_crud.update_environment_variable(session, record_id, **kwargs)
-
-    @with_session
-    def delete_variable_by_name(self, session, name: str) -> Optional[EnvironmentVariable]:
-        """
-        Delete environment variable.
-        
-        Args:
-            name: Variable name
-            
-        Returns:
-            Deleted EnvironmentVariable instance or None if not found
-        """
-        variable = self.envar_crud.find_by_name(session, name)
-        if not variable:
-            return None
-
-        return self.envar_crud.delete_environment_variable(session, variable.id)
-
-    @with_session
-    def delete_variable_by_id(self, session, record_id: str) -> EnvironmentVariable:
-        """
-        Delete environment variable.
-
-        Args:
-            record_id: Variable ID
-
-        Returns:
-            Deleted EnvironmentVariable instance
-        """
-        return self.envar_crud.delete_environment_variable(session, record_id)
-
-    @with_session
-    def list_variables(self, session) -> List[EnvironmentVariable]:
-        """
-        List environment variables.
-        
-        Returns:
-            List of EnvironmentVariable instances
-        """
-        return self.envar_crud.get_all(session)
-
-    @with_session 
-    def get_variables_by_filter(self, session, filters: dict) -> List[EnvironmentVariable]:
-        """
-        Get environment variables by filter criteria.
-        
-        Args:
-            filters: Dictionary of field filters
-            
-        Returns:
-            List of EnvironmentVariable instances matching filter
-        """
-        return self.envar_crud.filter(session, filters, limit=1000)
-
-    @with_session
-    def get_variables_by_scope(self, session, scope: str) -> List[EnvironmentVariable]:
-        """
-        Get environment variables by scope.
-        
-        Args:
-            scope: Variable scope string
-            
-        Returns:
-            List of EnvironmentVariable instances in scope
-        """
-        scope_enum = VariableScope(scope)
-        return self.envar_crud.filter(session, {'scope': scope_enum}, limit=1000)
-
-    def create_variable(self, name: str, value: str, description: Optional[str] = None, 
-                       variable_type: VariableType = VariableType.STRING, 
-                       scope: VariableScope = VariableScope.GLOBAL) -> EnvironmentVariable:
-        """
-        Create new environment variable with parameters.
-        
-        Args:
-            name: Variable name
-            value: Variable value
-            description: Optional description
-            variable_type: Variable type enum
-            scope: Variable scope enum
-            
-        Returns:
-            Created EnvironmentVariable instance
-        """
-        return self.create_record(name, value, description=description, 
-                                variable_type=variable_type, scope=scope)
-
-    def get_variable_by_name(self, name: str) -> Optional[EnvironmentVariable]:
-        """
-        Get environment variable by name.
-        
-        Args:
-            name: Variable name
-            
-        Returns:
-            EnvironmentVariable instance or None
-        """
-        return self.get_record_by_name(name)
-
-    def update_variable(self, name: str, **kwargs) -> EnvironmentVariable:
+    def update_environment_variable_by_name(self, session, name: str, value: str, **kwargs) -> EnvironmentVariable:
         """
         Update environment variable by name.
-        
-        Args:
-            name: Variable name
-            **kwargs: Update parameters (can include value, description, etc.)
-            
-        Returns:
-            Updated EnvironmentVariable instance
-        """
-        # Get current variable to get current value if not updating value
-        variable = self.get_record_by_name(name)
-        if not variable:
-            self._handle_not_found("EnvironmentVariable", name, "update_variable")
-        
-        # If value is provided, use it; otherwise keep current value
-        value = kwargs.pop('value', variable.value)
-        return self.update_record_by_name(name, value, **kwargs)
 
-    def delete_variable(self, name: str) -> bool:
+        Args:
+            session: Database session
+            name (str): Name of the environment variable
+            value (str): New value
+            **kwargs: Additional fields to update
+
+        Returns:
+            EnvironmentVariable: Updated environment variable
+
+        Raises:
+            OrchestrationError: If variable not found or validation fails
+        """
+        try:
+            envar = self.envar_crud.find_by_name(session, name)
+            if not envar:
+                self._handle_not_found("Environment variable", name, "update_by_name")
+            
+            return self.envar_crud.update_environment_variable(session, envar.id, value=value, **kwargs)
+        except Exception as e:
+            context = self._create_error_context("update_by_name", name=name)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def update_environment_variable_by_id(self, session, record_id: str, **kwargs) -> EnvironmentVariable:
+        """
+        Update environment variable by ID.
+
+        Args:
+            session: Database session
+            record_id (str): ID of the environment variable
+            **kwargs: Fields to update
+
+        Returns:
+            EnvironmentVariable: Updated environment variable
+
+        Raises:
+            OrchestrationError: If variable not found or validation fails
+        """
+        try:
+            envar = self.envar_crud.find_by_id(session, record_id)
+            if not envar:
+                self._handle_not_found("Environment variable", record_id, "update_by_id")
+            
+            return self.envar_crud.update_environment_variable(session, record_id, **kwargs)
+        except Exception as e:
+            context = self._create_error_context("update_by_id", record_id=record_id)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def delete_environment_variable_by_name(self, session, name: str) -> Optional[EnvironmentVariable]:
         """
         Delete environment variable by name.
-        
+
         Args:
-            name: Variable name
-            
+            session: Database session
+            name (str): Name of the environment variable
+
         Returns:
-            True if deleted, False if not found
+            Optional[EnvironmentVariable]: Deleted environment variable if found
+
+        Raises:
+            OrchestrationError: If database operation fails
         """
-        result = self.delete_variable_by_name(name)
-        return result is not None
+        try:
+            envar = self.envar_crud.find_by_name(session, name)
+            if not envar:
+                return None
+            
+            return self.envar_crud.delete_environment_variable(session, envar.id)
+        except Exception as e:
+            context = self._create_error_context("delete_by_name", name=name)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def delete_environment_variable_by_id(self, session, record_id: str) -> EnvironmentVariable:
+        """
+        Delete environment variable by ID.
+
+        Args:
+            session: Database session
+            record_id (str): ID of the environment variable
+
+        Returns:
+            EnvironmentVariable: Deleted environment variable
+
+        Raises:
+            OrchestrationError: If variable not found or deletion fails
+        """
+        try:
+            envar = self.envar_crud.find_by_id(session, record_id)
+            if not envar:
+                self._handle_not_found("Environment variable", record_id, "delete_by_id")
+            
+            return self.envar_crud.delete_environment_variable(session, record_id)
+        except Exception as e:
+            context = self._create_error_context("delete_by_id", record_id=record_id)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def get_all_environment_variable(self, session) -> List[EnvironmentVariable]:
+        """
+        Get all environment variables.
+
+        Args:
+            session: Database session
+
+        Returns:
+            List[EnvironmentVariable]: List of all environment variables
+
+        Raises:
+            OrchestrationError: If database query fails
+        """
+        try:
+            return self.envar_crud.get_all(session)
+        except Exception as e:
+            context = self._create_error_context("get_all")
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def filter_environment_variables(self, session, **kwargs) -> List[EnvironmentVariable]:
+        """
+        Filter environment variables by criteria.
+
+        Args:
+            session: Database session
+            **kwargs: Filter criteria (e.g. scope, variable_type, etc.)
+
+        Returns:
+            List[EnvironmentVariable]: List of filtered environment variables
+
+        Raises:
+            OrchestrationError: If database query fails
+        """
+        try:
+            return self.envar_crud.filter(session, filters=kwargs)
+        except Exception as e:
+            context = self._create_error_context("filter", filters=kwargs)
+            raise OrchestrationError(str(e), context=context) from e

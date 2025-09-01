@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from miniflow.app.core.response import APIResponse
 from miniflow.app.core.dependencies import verify_bfa_access, get_current_correlation_id
-from miniflow.app.operations.logger_operations import LoggerOperations
+from miniflow.app.routes.bfa.actions import LoggerActions
 from miniflow.app.routes.bfa.schemas.logger import (
     LoggerConfigUpdate,
     LogFileInfo
@@ -11,7 +11,7 @@ from miniflow.app.routes.bfa.schemas.logger import (
 from miniflow.core.exceptions import MiniflowException
 
 router = APIRouter()
-logger_ops = LoggerOperations()
+logger_ops = LoggerActions()
 
 
 @router.get("/", response_model=APIResponse[List[Dict[str, Any]]])

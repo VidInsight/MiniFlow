@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from miniflow.core.logger import get_logger
 
 from miniflow.app.routes.bff.router import bff_router
-from miniflow.app.routes.bfd.router import bfd_router
+# from miniflow.app.routes.bfd.router import bfd_router  # BFD router not implemented yet
 from miniflow.app.routes.bfa.router import bfa_router
 from miniflow.app.middleware import (CorrelationMiddleware,
                                      LoggingMiddleware,
@@ -58,11 +58,14 @@ def create_app(database_engine=None) -> FastAPI:
         prefix="/api/bff",
         tags=["Back for Frontend"]
     )
-    app.include_router(
-        bfd_router,
-        prefix="/api/bfd",
-        tags=["Back for Developer"]
-    )
+
+    # BFD router not implemented yet
+    # app.include_router(
+    #     bfd_router,
+    #     prefix="/api/bfd", 
+    #     tags=["Back for Developer"]
+    # )
+    
     app.include_router(
         bfa_router,
         prefix="/api/bfa",

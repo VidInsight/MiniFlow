@@ -12,15 +12,6 @@ class EnvironmentVariableCRUD(BaseCRUD[EnvironmentVariable]):
     def __init__(self):
         super().__init__(EnvironmentVariable)
 
-    def _update_access_stats(self, session: Session, variable: EnvironmentVariable):
-        """Update access statistics"""
-        try:
-            variable.access_count = (variable.access_count or 0) + 1
-            variable.last_accessed_at = datetime.now(timezone.utc)
-            # No manual flush needed - engine will handle auto-flush before commit
-        except Exception as e:
-            self.logger.warning(f"Failed to update access stats for variable {variable.name}: {str(e)}")
-
     def create_environment_variable(self, session: Session, name: str, value: str, **kwargs) -> EnvironmentVariable:
         """Create new environment variable with validation"""
         # Key Validation

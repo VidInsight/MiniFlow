@@ -9,12 +9,12 @@ from miniflow.core.logger.registry import LoggerRegistry, ModuleLoggerConfig, Lo
 from miniflow.config.logger_config import ALL_LOGGER_CONFIGS
 
 
-class LoggerOperations:
+class LoggerActions:
     """BFA Logger administrative operations"""
 
     def __init__(self):
         self.registry = LoggerRegistry()
-        self.logger = get_logger("operations")
+        self.logger = get_logger("miniflow_api")
 
         # ==================== LOGGER DISCOVERY ====================
 

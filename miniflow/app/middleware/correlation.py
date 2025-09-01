@@ -44,3 +44,8 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         response.headers["X-Process-Time"] = str(process_time)
         
         return response
+
+
+async def get_current_correlation_id(request: Request) -> str:
+    """Get current correlation ID from request state"""
+    return getattr(request.state, 'correlation_id', generate_correlation_id())

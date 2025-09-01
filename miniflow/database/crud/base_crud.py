@@ -398,6 +398,39 @@ class BaseCRUD(Generic[ModelType]):
             self.logger.error(f"Database error counting filtered {self.model_name} records: {str(e)}")
             raise DatabaseQueryError(f"Failed to count filtered {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
+    def list_all(self, session: Session, limit: Optional[int] = None, offset: Optional[int] = None) -> List[ModelType]:
+        """
+        List all records with optional pagination
+        
+        Args:
+            session: Database session
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            
+        Returns:
+            List of model instances
+        """
+        try:
+            stmt = select(self.model)
+            
+            if offset:
+                stmt = stmt.offset(offset)
+            if limit:
+                stmt = stmt.limit(limit)
+            
+            # Order by created_at descending if available
+            if hasattr(self.model, 'created_at'):
+                stmt = stmt.order_by(self.model.created_at.desc())
+            
+            result = session.execute(stmt).scalars().all()
+            self.logger.debug(f"Retrieved {len(result)} {self.model_name} records")
+            return result
+            
+        except SQLAlchemyError as e:
+            context = self._create_error_context("list_all", limit=limit, offset=offset)
+            self.logger.error(f"Database error listing {self.model_name} records: {str(e)}")
+            raise DatabaseQueryError(f"Failed to list {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+
         except Exception as e:
             context = self._create_error_context("count_filtered", valid_filters=valid_filters, invalid_fields=invalid_fields)
             self.logger.error(f"Unexpected error counting filtered {self.model_name} records: {str(e)}")

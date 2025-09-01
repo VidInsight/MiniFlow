@@ -4,7 +4,7 @@ from fastapi import Request, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from miniflow.core.logger import get_logger
-from miniflow.__main__ import MiniflowCore
+# MiniflowCore import'u lazy yapılacak circular import'u önlemek için
 
 # Security scheme
 security = HTTPBearer(auto_error=False) # do not create error
@@ -23,6 +23,7 @@ async def get_api_logger():
 
 def get_miniflow_core():
     """MiniflowCore singleton dependency"""
+    from miniflow.__main__ import MiniflowCore
     return MiniflowCore.get_instance()
 
 def get_database_engine(request: Request):
@@ -41,6 +42,8 @@ def get_database_engine(request: Request):
 
 def get_database_orchestrator(request: Request):
     """Get database orchestrator from app state or MiniflowCore"""
+    from miniflow.__main__ import MiniflowCore
+    
     # Önce app state'den dene (injection varsa)
     if hasattr(request.app.state, 'database_engine'):
         # App state'de engine var, MiniflowCore singleton kullan

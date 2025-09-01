@@ -11,6 +11,11 @@ from .models import (EnvironmentVariable,
                      FileUpload,
                      Script)
 
+# CRUD
+from .crud.envar_crud import EnvironmentVariableCRUD
+from .crud.fileupload_crud import FileUploadCRUD
+from .crud.script_crud import ScriptCRUD
+
 # Orchestrator
 from .orchestration import DatabaseOrchestrator
 
@@ -31,6 +36,10 @@ __all__ = [
     "EnvironmentVariable",
     "FileUpload",
     "Script",
+    # CRUD
+    "EnvironmentVariableCRUD",
+    "FileUploadCRUD",
+    "ScriptCRUD",
     # Orchestration
     "DatabaseOrchestrator",
 ]

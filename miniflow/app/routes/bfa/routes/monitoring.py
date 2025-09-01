@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from miniflow.app.core.response import APIResponse
 from miniflow.app.core.dependencies import verify_bfa_access, get_current_correlation_id
-from miniflow.app.operations.monitoring_operations import MonitoringOperations
+from miniflow.app.routes.bfa.actions import MonitoringActions
 from miniflow.app.routes.bfa.schemas.monitoring import (
     SystemMetricsResponse,
     AlertResponse,
@@ -22,7 +22,7 @@ from miniflow.app.routes.bfa.schemas.monitoring import (
 from miniflow.core.exceptions import MiniflowException
 
 router = APIRouter()
-monitoring_ops = MonitoringOperations()
+monitoring_ops = MonitoringActions()
 
 
 # ==================== SYSTEM METRICS ENDPOINTS ====================

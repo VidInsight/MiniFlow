@@ -20,6 +20,30 @@ class ScriptTestStatus(str, enum.Enum):
     PASSED = "PASSED"
     FAILED = "FAILED"
 
+class CredentialType(str, enum.Enum):
+    OAUTH2 = "OAUTH2"
+    API_KEY = "API_KEY"
+    BASIC_AUTH = "BASIC_AUTH"
+    TOKEN = "TOKEN"
+    CERTIFICATE = "CERTIFICATE"
+
+class CredentialProvider(str, enum.Enum):
+    GOOGLE = "GOOGLE"
+    MICROSOFT = "MICROSOFT"
+    SLACK = "SLACK"
+    GITHUB = "GITHUB"
+    GITLAB = "GITLAB"
+    AWS = "AWS"
+    AZURE = "AZURE"
+    CUSTOM = "CUSTOM"
+
+class ValidationStatus(str, enum.Enum):
+    UNTESTED = "UNTESTED"
+    VALID = "VALID"
+    EXPIRED = "EXPIRED"
+    INVALID = "INVALID"
+    ERROR = "ERROR"
+
 class ConditionType(str, enum.Enum):
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"
@@ -119,7 +143,7 @@ class EnvironmentVariable(BaseModel):
     __tablename__ = 'environment_variables'
 
     # Temel bilgiler
-    key = Column(String(100), nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True)
     value = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
 
@@ -137,8 +161,10 @@ class FileUpload(BaseModel):
     __tablename__ = 'file_uploads'
 
     # Temel bilgiler
-    filename = Column(String(255), nullable=False)
-    file_path = Column(Text, nullable=False)
+    name = Column(String(255),unique=True, nullable=False, index=True)  # file_name.file_extension format
+    filename = Column(String(255), nullable=False)  # Base filename without extension
+    file_extension = Column(String(20), nullable=True)  # File extension (.pdf, .txt, etc.)
+    file_path = Column(Text, unique=True, nullable=False)  # Absolute path to file
     file_size = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=True)
     checksum = Column(String(64), nullable=True)
@@ -154,16 +180,25 @@ class Script(BaseModel):
     description = Column(Text, nullable=True)
     version = Column(String(20), default="1.0.0", nullable=False)
     language = Column(Enum(ScriptType), nullable=False, index=True)
-
+    
+    # Category information  
+    category = Column(String(50), nullable=False, index=True)
+    subcategory = Column(String(50), nullable=True, index=True)
+    
+    # File information
+    file_extension = Column(String(10), nullable=True)  # .py, .sh, .js, etc.
+    file_path = Column(Text, nullable=True)  # scripts/category/subcategory/filename.ext
+    file_size = Column(Integer, nullable=True)  # File size in bytes
+    content = Column(String, nullable=True) 
+    
     # Environment
-    required_python_version = Column(String(20), nullable=True)  # ">=3.8,<4.0"
     required_packages = Column(JSON, default=list, nullable=False)  # ["requests==2.28.0"]
 
     # Input/Output tanımları
     input_schema = Column(JSON, default=dict, nullable=False)  # JSON Schema
     output_schema = Column(JSON, default=dict, nullable=False)  # JSON Schema
-    input_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
-    output_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
+    test_input_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
+    test_output_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
 
     # Test ve kalite
     test_status = Column(Enum(ScriptTestStatus), default=ScriptTestStatus.UNTESTED, nullable=False, index=True)
@@ -179,7 +214,6 @@ class Script(BaseModel):
     total_executions = Column(Integer, default=0, nullable=False)
 
     # Metadata
-    category = Column(String(50), nullable=True, index=True)  # data, api, notification
     tags = Column(JSON, default=list, nullable=False)  # ["email", "pdf", "urgent"]
     author = Column(String(100), nullable=True)
     documentation_url = Column(String(500), nullable=True)

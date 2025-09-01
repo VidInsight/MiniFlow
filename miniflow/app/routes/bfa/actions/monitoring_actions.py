@@ -13,7 +13,7 @@ from miniflow.core.exceptions import (
 )
 
 
-class MonitoringOperations:
+class MonitoringActions:
     """BFA Monitoring administrative operations"""
     
     def __init__(self):
