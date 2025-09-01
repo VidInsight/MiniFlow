@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("MiniFlow API shutting down...")
 
-def create_app() -> FastAPI:
+def create_app(database_engine=None) -> FastAPI:
     """FastAPI uygulaması factory"""
     app = FastAPI(
         title="MiniFlow API",
@@ -68,6 +68,13 @@ def create_app() -> FastAPI:
         prefix="/api/bfa",
         tags=["Back for Admin"]
     )
+
+    # Database engine'i app state'e kaydet
+    if database_engine:
+        app.state.database_engine = database_engine
+        logger = get_logger("miniflow_core")
+        if logger:
+            logger.info("Database engine injected into FastAPI app")
 
     # Health check endpoint
     @app.get("/health")
