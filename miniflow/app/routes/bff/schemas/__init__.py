@@ -23,6 +23,13 @@ from .scripts_bff_schemas import (
     ScriptDeleteResponse
 )
 
+from .workflow_bff_schemas import (
+    WorkflowCreateRequest,
+    WorkflowUpdateRequest,
+    WorkflowResponse,
+    WorkflowDeleteResponse
+)
+
 # TODO: Add other schema imports when files are created
 # from .credentials import (...)
 
@@ -40,5 +47,10 @@ __all__ = [
     'ScriptCreateRequest',
     'ScriptResponse',
     'ScriptDeleteResponse',
+    # Workflows
+    'WorkflowCreateRequest',
+    'WorkflowUpdateRequest',
+    'WorkflowResponse',
+    'WorkflowDeleteResponse',
     # TODO: Add other schemas when files are created
 ]

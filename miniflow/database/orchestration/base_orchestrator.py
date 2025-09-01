@@ -8,6 +8,7 @@ from miniflow.core.exceptions import DatabaseQueryError, ErrorContext, ErrorSeve
 from ..crud import EnvironmentVariableCRUD
 from ..crud import FileUploadCRUD
 from ..crud import ScriptCRUD
+from ..crud import WorkflowCRUD
 
 
 def with_session(func):
@@ -54,6 +55,7 @@ class BaseOrchestrator:
         self.envar_crud = EnvironmentVariableCRUD()
         self.fileupload_crud = FileUploadCRUD()
         self.script_crud = ScriptCRUD()
+        self.workflow_crud = WorkflowCRUD()
         
         self.logger.info("BaseOrchestrator initialized")
 

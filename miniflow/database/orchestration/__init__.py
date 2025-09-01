@@ -7,6 +7,7 @@ Provides high-level business logic and session management for database operation
 from .envar_orchestrator import EnvironmentVariableOrchestrator
 from .fileupload_orchestrator import FileUploadOrchestrator
 from .script_orchestrator import ScriptOrchestrator
+from .workflow_orchestrator import WorkflowOrchestrator
 # from .credential_orchestrator import CredentialOrchestrator  # TODO: Implement CredentialOrchestrator
 
 
@@ -24,10 +25,10 @@ class DatabaseOrchestrator:
         self.envar_orchestrator = EnvironmentVariableOrchestrator(database_engine)
         self.fileupload_orchestrator = FileUploadOrchestrator(database_engine)
         self.script_orchestrator = ScriptOrchestrator(database_engine)
+        self.workflow_orchestrator = WorkflowOrchestrator(database_engine)
         # self.credential_orchestrator = CredentialOrchestrator(database_engine)  # TODO: Implement
         
         # Gelecekte eklenecek orchestrator'lar için yer tutucular
-        # self.workflow_orchestrator = WorkflowOrchestrator(database_engine)
         # self.execution_orchestrator = ExecutionOrchestrator(database_engine)
         # self.audit_orchestrator = AuditOrchestrator(database_engine)
 

@@ -171,6 +171,7 @@ class FileUpload(BaseModel):
     # uploaded_by = Column(String(20), ForeignKey('users.id'), nullable=True)
     is_temporary = Column(Boolean, default=True)
 
+
 class Script(BaseModel):
     __prefix__ = "SC"
     __tablename__ = 'scripts'
@@ -180,17 +181,17 @@ class Script(BaseModel):
     description = Column(Text, nullable=True)
     version = Column(String(20), default="1.0.0", nullable=False)
     language = Column(Enum(ScriptType), nullable=False, index=True)
-    
-    # Category information  
+
+    # Category information
     category = Column(String(50), nullable=False, index=True)
     subcategory = Column(String(50), nullable=True, index=True)
-    
+
     # File information
     file_extension = Column(String(10), nullable=True)  # .py, .sh, .js, etc.
     file_path = Column(Text, nullable=True)  # scripts/category/subcategory/filename.ext
     file_size = Column(Integer, nullable=True)  # File size in bytes
-    content = Column(String, nullable=True) 
-    
+    content = Column(String, nullable=True)
+
     # Environment
     required_packages = Column(JSON, default=list, nullable=False)  # ["requests==2.28.0"]
 
@@ -217,3 +218,121 @@ class Script(BaseModel):
     tags = Column(JSON, default=list, nullable=False)  # ["email", "pdf", "urgent"]
     author = Column(String(100), nullable=True)
     documentation_url = Column(String(500), nullable=True)
+
+    # Relationships
+    nodes = relationship("Node", back_populates="script")
+
+
+class Workflow(BaseModel):
+    __prefix__ = "WF"
+    __tablename__ = 'workflows'
+
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    priority = Column(Integer, default=0, nullable=False)
+    status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False)
+    status_message = Column(Text, nullable=True)
+
+    # Relationships
+    nodes = relationship("Node", back_populates="workflow", cascade="all, delete-orphan")
+    edges = relationship("Edge", back_populates="workflow", cascade="all, delete-orphan")
+    executions = relationship("Execution", back_populates="workflow", cascade="all, delete-orphan")
+
+
+class Node(BaseModel):
+    __prefix__ = "ND"
+    __tablename__ = 'nodes'
+
+    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    script_id = Column(String(12), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
+
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    params = Column(JSON, nullable=True, default=dict)
+    max_retries = Column(Integer, default=3, nullable=False)
+    timeout_seconds = Column(Integer, default=300, nullable=False)
+
+    # Relationships
+    workflow = relationship("Workflow", back_populates="nodes")
+    script = relationship("Script", back_populates="nodes")
+
+    # Edge relationships
+    outgoing_edges = relationship("Edge", foreign_keys="Edge.from_node_id", back_populates="from_node")
+    incoming_edges = relationship("Edge", foreign_keys="Edge.to_node_id", back_populates="to_node")
+
+    # Execution relationships
+    execution_inputs = relationship("ExecutionInput", back_populates="node")
+    execution_outputs = relationship("ExecutionOutput", back_populates="node")
+
+
+class Edge(BaseModel):
+    __prefix__ = "ED"
+    __tablename__ = 'edges'
+
+    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    from_node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    to_node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+
+    condition_type = Column(Enum(ConditionType), default=ConditionType.SUCCESS, nullable=False)
+
+    # Relationships
+    workflow = relationship("Workflow", back_populates="edges")
+    from_node = relationship("Node", foreign_keys=[from_node_id], back_populates="outgoing_edges")
+    to_node = relationship("Node", foreign_keys=[to_node_id], back_populates="incoming_edges")
+
+
+class Execution(BaseModel):
+    __prefix__ = "EX"
+    __tablename__ = 'executions'
+
+    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+
+    status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False)
+    pending_nodes = Column(Integer, default=0, nullable=False)
+    executed_nodes = Column(Integer, default=0, nullable=False)
+    results = Column(JSON, default=dict, nullable=False)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    ended_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    workflow = relationship("Workflow", back_populates="executions")
+    execution_inputs = relationship("ExecutionInput", back_populates="execution", cascade="all, delete-orphan")
+    execution_outputs = relationship("ExecutionOutput", back_populates="execution", cascade="all, delete-orphan")
+
+
+class ExecutionInput(BaseModel):
+    __prefix__ = "EI"
+    __tablename__ = 'execution_inputs'
+
+    execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+
+    priority = Column(Integer, default=0, nullable=False)
+    dependency_count = Column(Integer, default=0, nullable=False)
+    wait_factor = Column(Integer, default=0, nullable=False)
+
+    # Denormalized fields for performance (scheduler optimization)
+    node_name = Column(String(100), nullable=False)
+    script_path = Column(Text, nullable=True)
+    node_params = Column(JSON, default=dict, nullable=False)
+
+    # Relationships
+    execution = relationship("Execution", back_populates="execution_inputs")
+    node = relationship("Node", back_populates="execution_inputs")
+
+
+class ExecutionOutput(BaseModel):
+    __prefix__ = "EO"
+    __tablename__ = 'execution_outputs'
+
+    execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+
+    status = Column(Enum(ExecutionOutputStatus), nullable=False)
+    result_data = Column(JSON, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    execution = relationship("Execution", back_populates="execution_outputs")
+    node = relationship("Node", back_populates="execution_outputs")
