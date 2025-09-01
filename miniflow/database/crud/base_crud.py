@@ -62,6 +62,7 @@ class BaseCRUD(Generic[ModelType]):
             self.logger.debug(f"Creating {self.model_name} with data: {list(valid_data.keys())}")
             db_object = self.model(**valid_data)
             session.add(db_object)
+            # Flush to get the ID immediately (engine will handle final commit)
             session.flush()
             self.logger.info(f"Successfully created {self.model_name} with ID: {getattr(db_object, 'id', 'N/A')}")
             return db_object
@@ -70,7 +71,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("create", data_keys=list(valid_data.keys()), invalid_fields=invalid_fields)
             self.logger.error(f"Database error creating {self.model_name}: {str(e)}")
-            raise DatabaseError(f"Failed to create {self.model_name}",context=context,severity=ErrorSeverity.HIGH,source_error=e)
+            raise DatabaseQueryError(f"Failed to create {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -100,13 +101,13 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("find_by_id", record_id=record_id)
             self.logger.error(f"Database error finding {self.model_name} by ID {record_id}: {str(e)}")
-            raise DatabaseError( f"Failed to find {self.model_name} by ID", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to find {self.model_name} by ID", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
             context = self._create_error_context("find_by_id", record_id=record_id)
             self.logger.error(f"Unexpected error finding {self.model_name} by ID {record_id}: {str(e)}")
-            raise DatabaseQueryError( f"Object Retrieval Error (via ID): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Object Retrieval Error (via ID): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
     def find_by_name(self, session: Session, record_name: str) -> Optional[ModelType]:
         """Find single record by name field (if model has name attribute)."""
@@ -134,7 +135,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("find_by_name", record_name=record_name)
             self.logger.error(f"Database error finding {self.model_name} by name {record_name}: {str(e)}")
-            raise DatabaseError(f"Failed to find {self.model_name} by name", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to find {self.model_name} by name", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -169,7 +170,7 @@ class BaseCRUD(Generic[ModelType]):
                 else:
                     invalid_fields.append(field)
                     self.logger.warning(f"Ignoring invalid field '{field}' for {self.model_name} update")
-            session.flush()
+            # No manual flush needed - engine will handle auto-flush before commit
             self.logger.info(f"Successfully updated {self.model_name} ID {record_id}, fields: {updated_fields}")
             return db_object
 
@@ -177,7 +178,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("update", record_id=record_id, updated_fields=updated_fields, invalid_fields=invalid_fields)
             self.logger.error(f"Database error updating {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseError(f"Failed to update {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to update {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -190,12 +191,12 @@ class BaseCRUD(Generic[ModelType]):
         db_object = self.find_by_id(session, record_id)
         if db_object is None:
             context = self._create_error_context("delete", record_id=record_id)
-            raise DatabaseQueryError( f"Object Deletion Error: No such {self.model_name} record with ID {record_id}", context=context, severity=ErrorSeverity.HIGH)
+            raise DatabaseQueryError(f"Object Deletion Error: No such {self.model_name} record with ID {record_id}", context=context, severity=ErrorSeverity.HIGH)
 
         try:
             self.logger.debug(f"Deleting {self.model_name} ID {record_id}")
             session.delete(db_object)
-            session.flush()
+            # No manual flush needed - engine will handle auto-flush before commit
             self.logger.info(f"Successfully deleted {self.model_name} ID {record_id}")
             return db_object
 
@@ -203,7 +204,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("delete", record_id=record_id)
             self.logger.error(f"Database error deleting {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseError( f"Failed to delete {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to delete {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -229,13 +230,13 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("exists", record_id=record_id)
             self.logger.error(f"Database error checking {self.model_name} existence ID {record_id}: {str(e)}")
-            raise DatabaseError(f"Failed to check {self.model_name} existence",context=context,severity=ErrorSeverity.HIGH,source_error=e)
+            raise DatabaseQueryError(f"Failed to check {self.model_name} existence",context=context,severity=ErrorSeverity.HIGH,source_error=e)
 
         # CRUD Error
         except Exception as e:
             context = self._create_error_context("exists", record_id=record_id)
             self.logger.error(f"Unexpected error checking {self.model_name} existence ID {record_id}: {str(e)}")
-            raise DatabaseQueryError( f"Object Exists Error: {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Object Exists Error: {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
     def count(self, session: Session) -> int:
         """Count total number of records in the table."""
@@ -251,7 +252,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("count")
             self.logger.error(f"Database error counting {self.model_name} records: {str(e)}")
-            raise DatabaseError(f"Failed to count {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to count {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -294,13 +295,13 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("get_all", skip=skip, limit=limit, order_by=order_by)
             self.logger.error(f"Database error getting all {self.model_name} records: {str(e)}")
-            raise DatabaseError(f"Failed to retrieve {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to retrieve {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
             context = self._create_error_context("get_all", skip=skip, limit=limit, order_by=order_by)
             self.logger.error(f"Unexpected error getting all {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError( f"Object Retrieval Error (via Get All): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Object Retrieval Error (via Get All): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
     def filter(self, session: Session, filters: Dict[str, Any], skip: int = 0, limit: int = 100, order_by_field: str = None) -> List[ModelType]:
         """Filter records by field values with pagination and ordering - Optimized version."""
@@ -357,7 +358,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("filter", valid_filters=valid_filters, invalid_fields=invalid_fields,skip=skip, limit=limit)
             self.logger.error(f"Database error filtering {self.model_name} records: {str(e)}")
-            raise DatabaseError(f"Failed to filter {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to filter {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         # CRUD Error
         except Exception as e:
@@ -395,7 +396,7 @@ class BaseCRUD(Generic[ModelType]):
         except SQLAlchemyError as e:
             context = self._create_error_context("count_filtered", valid_filters=valid_filters, invalid_fields=invalid_fields)
             self.logger.error(f"Database error counting filtered {self.model_name} records: {str(e)}")
-            raise DatabaseError(f"Failed to count filtered {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            raise DatabaseQueryError(f"Failed to count filtered {self.model_name} records", context=context, severity=ErrorSeverity.HIGH, source_error=e)
 
         except Exception as e:
             context = self._create_error_context("count_filtered", valid_filters=valid_filters, invalid_fields=invalid_fields)
