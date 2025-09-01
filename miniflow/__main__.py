@@ -15,21 +15,15 @@ from miniflow.config.api_config import API_CONFIG
 from miniflow.app import create_app
 import uvicorn
 
+# Database imports
+from miniflow.database import get_sqlite_config, get_mysql_config, get_postgresql_config
+from miniflow.database import DatabaseEngine, create_database_engine
+from miniflow.database import DatabaseOrchestrator
+from miniflow.database import Base
 
 # Global singleton instances
-_system_monitor_instance: Optional[SystemMonitor] = None
-_system_monitor_lock = threading.Lock()
-
-
-def get_system_monitor_instance() -> SystemMonitor:
-    """Global SystemMonitor singleton getter"""
-    global _system_monitor_instance
-
-    with _system_monitor_lock:
-        if _system_monitor_instance is None:
-            _system_monitor_instance = SystemMonitor(MONITORING_CONFIG)
-
-        return _system_monitor_instance
+_miniflow_core_instance: Optional['MiniflowCore'] = None
+_miniflow_core_lock = threading.Lock()
 
 
 class MiniflowCore:
@@ -47,6 +41,7 @@ class MiniflowCore:
         # Servis durumları
         self.logger_started = False
         self.monitoring_started = False
+        self.database_engine_started = False
         self.api_started = False
         self.input_handler_started = False
         self.output_handler_started = False
@@ -57,11 +52,11 @@ class MiniflowCore:
         self.logger = None
         self.system_monitor = None
         self.fastapi_app = None
+        self.database_engine = None
         self.database_orchestrator = None
         self.execution_engine = None
         self.input_handler = None
         self.output_handler = None
-
 
     def start_loggers(self):
         """Konfigrasyona göre logger'ları başlatır"""
@@ -105,8 +100,10 @@ class MiniflowCore:
         try:
             print(f"\n{time.asctime()} :: Starting monitoring service")
 
-            # Global SystemMonitor instance kullan
-            self.system_monitor = get_system_monitor_instance()
+            # SystemMonitor instance oluştur
+            if self.system_monitor is None:
+                self.system_monitor = SystemMonitor(MONITORING_CONFIG)
+            
             self.system_monitor.start()
             self.monitoring_started = True
 
@@ -142,6 +139,61 @@ class MiniflowCore:
             if self.logger:
                 self.logger.error("Failed to stop monitoring", extra={"error": str(e)})
 
+    def start_database_engine(self):
+        if self.database_engine_started:
+            print("Database engine already started")
+            return
+
+        if not self.logger_started:
+            print("Logger must be started before database engine")
+            return
+
+        try:
+            print(f"\n{time.asctime()} :: Starting database engine")
+
+            # DatabaseEngine instance oluştur
+            if self.database_engine is None:
+                config = get_sqlite_config("miniflow_team_test")
+                self.database_engine = create_database_engine(config, auto_start=True, create_tables=True)
+                self.database_engine_started = True
+            
+            # DatabaseOrchestrator'ı başlat
+            if self.database_orchestrator is None:
+                self.database_orchestrator = DatabaseOrchestrator(self.database_engine)
+
+            # Database başlangıç logları
+            self.logger.info("Database engine started")
+            self.logger.info("Database tables have been created")
+            self.logger.debug("Database engine config details", extra={"database_name": "miniflow_team_test"})
+
+            print(f"{time.asctime()} :: Database engine started successfully")
+        except Exception as e:
+            print(f"{time.asctime()} :: Failed to start database engine: {e}")
+            if self.logger:
+                self.logger.error("Failed to start database engine", extra={"error": str(e)})
+            raise
+
+    def stop_database_engine(self):
+        if not self.database_engine_started:
+            print("Database engine not started")
+            return
+
+        try:
+            print(f"\n{time.asctime()} :: Stopping database engine service...")
+
+            self.database_engine.stop()
+            self.database_engine_started = False
+            self.database_orchestrator = None
+
+            if self.logger:
+                self.logger.info("Database engine service stopped")
+
+            print(f"{time.asctime()} :: Database engine service stopped successfully")
+        except Exception as e:
+            print(f"{time.asctime()} :: Failed to stop database engine: {e}")
+            if self.logger:
+                self.logger.error("Failed to stop database engine", extra={"error": str(e)})
+
     def start_api(self):
         """FastAPI servisini başlatır"""
         if self.api_started:
@@ -155,8 +207,8 @@ class MiniflowCore:
         try:
             print(f"\n{time.asctime()} :: Starting FastAPI service...")
 
-            # FastAPI app oluştur
-            self.fastapi_app = create_app()
+            # Database engine'i app'e inject et
+            self.fastapi_app = create_app(database_engine=self.database_engine)
             self.api_started = True
 
             # API başlangıç logları
@@ -202,7 +254,6 @@ class MiniflowCore:
             print(f"{time.asctime()} :: Failed to stop API: {e}")
             if self.logger:
                 self.logger.error("Failed to stop API", extra={"error": str(e)})
-            
 
     def start(self):
         """Tüm MiniFlow çekirdek servislerini başlatır"""
@@ -218,12 +269,15 @@ class MiniflowCore:
             # 1. Logger'ları başlat
             self.start_loggers()
             
-            # 2. Monitoring'i başlat
+            # 2. Database Engine başlat
+            self.start_database_engine()
+            
+            # 3. Monitoring'i başlat
             self.start_monitoring()
-            
-            # 3. API'yi başlat
+
+            # 4. API'yi başlat
             self.start_api()
-            
+
             self.running = True
             
             # Başlangıç başarı mesajı
@@ -242,6 +296,7 @@ class MiniflowCore:
             print(f"\n{time.asctime()} :: {self.app_name} started successfully!")
             print(f"\tServices Status:")
             print(f"\t* Logger: {'ACTIVE' if self.logger_started else 'DEACTIVE'}")
+            print(f"\t* Database Engine: {'ACTIVE' if self.database_engine_started else 'DEACTIVE'}")
             print(f"\t* Monitoring: {'ACTIVE' if self.monitoring_started else 'DEACTIVE'}")
             print(f"\t* API: {'ACTIVE' if self.api_started else 'DEACTIVE'}")
             
@@ -261,7 +316,10 @@ class MiniflowCore:
             
             # 1. API'yi durdur
             self.stop_api()
-            
+
+            # 2. Database Engine'i durdur
+            self.stop_database_engine()
+
             # 2. Monitoring'i durdur
             self.stop_monitoring()
             
@@ -302,6 +360,7 @@ class MiniflowCore:
             "running": self.running,
             "services": {
                 "logger": self.logger_started,
+                "database_engine": self.database_engine_started,
                 "monitoring": self.monitoring_started,
                 "api": self.api_started,
                 "input_handler": self.input_handler_started,
@@ -311,6 +370,18 @@ class MiniflowCore:
             "uptime_seconds": time.time() - self.start_time if self.start_time else 0,
             "api_url": f"http://{self.api_config['host']}:{self.api_config['port']}" if self.api_started else None
         }
+    
+    def get_database_engine(self):
+        """Database engine'i döndür"""
+        if not self.database_engine_started:
+            raise RuntimeError("Database engine not started")
+        return self.database_engine
+    
+    def get_database_orchestrator(self):
+        """Database orchestrator'ı döndür"""
+        if not self.database_engine_started:
+            raise RuntimeError("Database engine not started")
+        return self.database_orchestrator
 
     def run_api_server(self):
         """Fast API server'ı çalıştır"""
@@ -345,6 +416,17 @@ class MiniflowCore:
                 self.logger.error("FastAPI server error", extra={"error": str(e)})
         finally:
             self.stop()
+
+    @classmethod
+    def get_instance(cls) -> 'MiniflowCore':
+        """Global MiniflowCore singleton getter"""
+        global _miniflow_core_instance
+
+        with _miniflow_core_lock:
+            if _miniflow_core_instance is None:
+                _miniflow_core_instance = cls()
+
+            return _miniflow_core_instance
 
 
 def main():
