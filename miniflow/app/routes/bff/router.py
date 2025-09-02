@@ -10,6 +10,11 @@ from miniflow.app.routes.bff.routes.envar_bff_routes import router as envvar_rou
 from miniflow.app.routes.bff.routes.fileupload_bff_routes import router as fileupload_router
 from miniflow.app.routes.bff.routes.script_bff_routes import router as script_router
 from miniflow.app.routes.bff.routes.workflow_bff_routes import router as workflow_router
+from miniflow.app.routes.bff.routes.node_bff_routes import router as node_router
+from miniflow.app.routes.bff.routes.edge_bff_routes import router as edge_router
+from miniflow.app.routes.bff.routes.execution_bff_routes import router as execution_router
+from miniflow.app.routes.bff.routes.execution_input_bff_routes import router as execution_input_router
+from miniflow.app.routes.bff.routes.execution_output_bff_routes import router as execution_output_router
 # from miniflow.app.routes.bff.routes.credential_routes import router as credential_router  # Not implemented yet
 
 # BFF Ana router - Frontend yetkilendirmesi ile
@@ -41,4 +46,39 @@ bff_router.include_router(
     workflow_router,
     prefix="/workflows",  # Workflows prefix
     tags=["BFF - Workflows"]
+)
+
+# Node routes - nodes endpoints
+bff_router.include_router(
+    node_router,
+    prefix="/nodes",  # Nodes prefix
+    tags=["BFF - Nodes"]
+)
+
+# Edge routes - edges endpoints
+bff_router.include_router(
+    edge_router,
+    prefix="/edges",  # Edges prefix
+    tags=["BFF - Edges"]
+)
+
+# Execution routes - executions endpoints (READ-ONLY)
+bff_router.include_router(
+    execution_router,
+    prefix="/executions",  # Executions prefix
+    tags=["BFF - Executions"]
+)
+
+# Execution Input routes - execution-inputs endpoints (READ-ONLY)
+bff_router.include_router(
+    execution_input_router,
+    prefix="/execution-inputs",  # Execution Inputs prefix
+    tags=["BFF - Execution Inputs"]
+)
+
+# Execution Output routes - execution-outputs endpoints (READ-ONLY)
+bff_router.include_router(
+    execution_output_router,
+    prefix="/execution-outputs",  # Execution Outputs prefix
+    tags=["BFF - Execution Outputs"]
 )

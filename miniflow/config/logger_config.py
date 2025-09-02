@@ -21,7 +21,7 @@ MINIFLOW_API_LOGGER_CONFIG = {
     "filename": "logs/miniflow_api.log",
     "max_size_mb": 200,
     "max_files": 10,
-    "console_output": False,  # Console'a hiç basma
+    "console_output": True,  # Console'a hiç basma
     "console_level": "CRITICAL",
     "file_level": "INFO",
     "console_formatter": "plain",

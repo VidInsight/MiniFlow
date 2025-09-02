@@ -305,6 +305,7 @@ class ExecutionInput(BaseModel):
     __tablename__ = 'execution_inputs'
 
     execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
     priority = Column(Integer, default=0, nullable=False)
@@ -318,6 +319,7 @@ class ExecutionInput(BaseModel):
 
     # Relationships
     execution = relationship("Execution", back_populates="execution_inputs")
+    workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_inputs")
 
 
@@ -326,6 +328,7 @@ class ExecutionOutput(BaseModel):
     __tablename__ = 'execution_outputs'
 
     execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
     status = Column(Enum(ExecutionOutputStatus), nullable=False)
@@ -335,4 +338,5 @@ class ExecutionOutput(BaseModel):
 
     # Relationships
     execution = relationship("Execution", back_populates="execution_outputs")
+    workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_outputs")

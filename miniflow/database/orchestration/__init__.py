@@ -8,6 +8,11 @@ from .envar_orchestrator import EnvironmentVariableOrchestrator
 from .fileupload_orchestrator import FileUploadOrchestrator
 from .script_orchestrator import ScriptOrchestrator
 from .workflow_orchestrator import WorkflowOrchestrator
+from .node_orchestrator import NodeOrchestrator
+from .edge_orchestrator import EdgeOrchestrator
+from .execution_orchestrator import ExecutionOrchestrator
+from .execution_input_orchestrator import ExecutionInputOrchestrator
+from .execution_output_orchestrator import ExecutionOutputOrchestrator
 # from .credential_orchestrator import CredentialOrchestrator  # TODO: Implement CredentialOrchestrator
 
 
@@ -26,10 +31,14 @@ class DatabaseOrchestrator:
         self.fileupload_orchestrator = FileUploadOrchestrator(database_engine)
         self.script_orchestrator = ScriptOrchestrator(database_engine)
         self.workflow_orchestrator = WorkflowOrchestrator(database_engine)
+        self.node_orchestrator = NodeOrchestrator(database_engine)
+        self.edge_orchestrator = EdgeOrchestrator(database_engine)
+        self.execution_orchestrator = ExecutionOrchestrator(database_engine)
+        self.execution_input_orchestrator = ExecutionInputOrchestrator(database_engine)
+        self.execution_output_orchestrator = ExecutionOutputOrchestrator(database_engine)
         # self.credential_orchestrator = CredentialOrchestrator(database_engine)  # TODO: Implement
         
         # Gelecekte eklenecek orchestrator'lar için yer tutucular
-        # self.execution_orchestrator = ExecutionOrchestrator(database_engine)
         # self.audit_orchestrator = AuditOrchestrator(database_engine)
 
 

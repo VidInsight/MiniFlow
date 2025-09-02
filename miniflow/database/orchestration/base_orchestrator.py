@@ -9,6 +9,11 @@ from ..crud import EnvironmentVariableCRUD
 from ..crud import FileUploadCRUD
 from ..crud import ScriptCRUD
 from ..crud import WorkflowCRUD
+from ..crud import NodeCRUD
+from ..crud import EdgeCRUD
+from ..crud import ExecutionCRUD
+from ..crud import ExecutionInputCRUD
+from ..crud import ExecutionOutputCRUD
 
 
 def with_session(func):
@@ -56,6 +61,11 @@ class BaseOrchestrator:
         self.fileupload_crud = FileUploadCRUD()
         self.script_crud = ScriptCRUD()
         self.workflow_crud = WorkflowCRUD()
+        self.node_crud = NodeCRUD()
+        self.edge_crud = EdgeCRUD()
+        self.execution_crud = ExecutionCRUD()
+        self.execution_input_crud = ExecutionInputCRUD()
+        self.execution_output_crud = ExecutionOutputCRUD()
         
         self.logger.info("BaseOrchestrator initialized")
 
