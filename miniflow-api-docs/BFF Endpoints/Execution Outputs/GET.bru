@@ -1,0 +1,15 @@
+meta {
+  name: GET
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/execution-outputs/{{EXECUTION_OUTPUT_ID}}
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,15 @@
+meta {
+  name: DELETE
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{BASE_URL}}/api/bff/workflows/{{WORKFLOW_ID}}
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

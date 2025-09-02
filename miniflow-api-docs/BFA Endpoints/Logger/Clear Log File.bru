@@ -1,0 +1,19 @@
+meta {
+  name: Clear Log File
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{BASE_URL}}/api/bfa/logger/{{logger_name}}/file
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

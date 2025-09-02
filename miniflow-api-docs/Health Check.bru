@@ -1,0 +1,19 @@
+meta {
+  name: Health Check
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/health
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: false
+}

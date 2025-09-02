@@ -1,0 +1,25 @@
+meta {
+  name: UPDATE
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/workflows/{{WORKFLOW_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Updated Email Workflow",
+    "description": "Updated description for email processing",
+    "priority": 20,
+    "status": "ACTIVE",
+    "status_message": "Workflow is now active and processing emails"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

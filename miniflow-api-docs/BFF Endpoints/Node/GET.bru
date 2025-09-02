@@ -1,0 +1,15 @@
+meta {
+  name: GET
+  type: http
+  seq: 2
+}
+
+get {
+  url: GET {{BASE_URL}}/api/bff/nodes/{{NODE_ID}}
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

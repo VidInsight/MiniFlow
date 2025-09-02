@@ -1,0 +1,33 @@
+meta {
+  name: Update Monitoring Config
+  type: http
+  seq: 10
+}
+
+put {
+  url: {{BASE_URL}}/api/bfa/monitoring/config
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "monitoring_interval": 15.0,
+    "memory_warning_threshold": 75.0,
+    "memory_critical_threshold": 90.0,
+    "cpu_warning_threshold": 70.0,
+    "cpu_critical_threshold": 85.0,
+    "disk_warning_threshold": 85.0,
+    "disk_critical_threshold": 95.0,
+    "enable_alerts": true,
+    "max_alerts_history": 200
+  }
+}
+
+settings {
+  encodeUrl: true
+}

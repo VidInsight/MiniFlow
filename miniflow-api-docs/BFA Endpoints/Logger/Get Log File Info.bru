@@ -1,0 +1,19 @@
+meta {
+  name: Get Log File Info
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/logger/{{logger_name}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

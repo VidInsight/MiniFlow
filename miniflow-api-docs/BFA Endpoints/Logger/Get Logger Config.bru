@@ -1,0 +1,19 @@
+meta {
+  name: Get Logger Config
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/logger/{{logger_name}}/config
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

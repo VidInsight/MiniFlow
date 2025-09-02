@@ -1,0 +1,19 @@
+meta {
+  name: Get Registered Components
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/components
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

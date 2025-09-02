@@ -1,0 +1,20 @@
+meta {
+  name: LIST by SKIP&LIMIT
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/execution-inputs/?skip=0&limit=20
+  body: none
+  auth: inherit
+}
+
+params:query {
+  skip: 0
+  limit: 20
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,46 @@
+meta {
+  name: CREATE
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/scripts/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "data_processor",
+    "language": "PY",
+    "category": "data_processing",
+    "content": "import pandas as pd\n\ndef process_data(df):\n    # Data processing logic\n    return df.dropna()\n\nif __name__ == '__main__':\n    print('Data processor script')",
+    "subcategory": "utilities",
+    "description": "Script for processing CSV data",
+    "version": "1.0.0",
+    "required_packages": ["pandas", "numpy"],
+    "input_schema": {
+        "file_path": {"type": "string"},
+        "columns": {"type": "array"}
+    },
+    "output_schema": {
+        "processed_rows": {"type": "integer"},
+        "output_file": {"type": "string"}
+    },
+    "test_input_params": {
+      "file_path": "test_data.csv",
+      "columns": ["name", "age", "email"]
+    },
+    "test_output_params": {
+      "processed_rows": 100,
+      "output_file": "processed_data.csv"
+    },
+    "tags": ["data", "processing", "csv"],
+    "author": "Test User"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

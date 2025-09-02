@@ -1,0 +1,15 @@
+meta {
+  name: LIST
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/envar/
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,19 @@
+meta {
+  name: Get Monitoring Config
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/config
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

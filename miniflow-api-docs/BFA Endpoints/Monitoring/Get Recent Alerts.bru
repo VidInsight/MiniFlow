@@ -1,0 +1,19 @@
+meta {
+  name: Get Recent Alerts
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/alerts/recent
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

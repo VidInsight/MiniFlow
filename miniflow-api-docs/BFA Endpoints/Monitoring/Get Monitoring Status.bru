@@ -1,0 +1,19 @@
+meta {
+  name: Get Monitoring Status
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/status
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

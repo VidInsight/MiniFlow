@@ -1,0 +1,19 @@
+meta {
+  name: LIST by WORKFLOW ID
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/nodes/?workflow_id={{WORKFLOW_ID}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  workflow_id: {{WORKFLOW_ID}}
+}
+
+settings {
+  encodeUrl: true
+}

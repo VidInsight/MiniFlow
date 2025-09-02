@@ -1,0 +1,15 @@
+meta {
+  name: DELETE
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{BASE_URL}}/api/bff/files/{{FILE_ID}}
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

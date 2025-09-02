@@ -1,0 +1,19 @@
+meta {
+  name: Get System Health
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/health
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}

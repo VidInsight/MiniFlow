@@ -1,0 +1,29 @@
+meta {
+  name: CREATE
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/envar/
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "TEST_API_KEY",
+    "value": "sk-1234567890abcdef",
+    "description": "Test API key for external service",
+    "variable_type": "string",
+    "scope": "global"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

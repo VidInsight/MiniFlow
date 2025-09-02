@@ -1,0 +1,29 @@
+meta {
+  name: UPDATE
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/nodes/{{NODE_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Updated Email Parser Node",
+    "description": "Enhanced email parsing with validation",
+    "max_retries": 10,
+    "params": {
+      "input_format": "json",
+      "batch_size": 200,
+      "timeout_per_item": 45,
+      "enable_validation": true
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}

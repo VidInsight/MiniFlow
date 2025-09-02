@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "MiniFlow",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

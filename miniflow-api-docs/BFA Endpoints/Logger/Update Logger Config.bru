@@ -1,0 +1,30 @@
+meta {
+  name: Update Logger Config
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{BASE_URL}}/api/bfa/logger/{{logger_name}}/config
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "level": "DEBUG",
+    "console_output": true,
+    "console_level": "ERROR",
+    "file_formatter": "json",
+    "console_formatter": "plain",
+    "enabled": true
+  }
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,19 @@
+meta {
+  name: Get Alert Summary
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{BASE_URL}}/api/bfa/monitoring/alerts/summary
+  body: none
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+settings {
+  encodeUrl: true
+}
