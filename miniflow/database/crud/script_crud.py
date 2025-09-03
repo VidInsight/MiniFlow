@@ -1,80 +1,62 @@
-from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
-import os
-from pathlib import Path
-
-from miniflow.database.models import Script, ScriptType
+from miniflow.database.models import Script, ScriptTestStatus
 from miniflow.database.crud.base_crud import BaseCRUD
-from miniflow.core.exceptions import ValidationError, DatabaseQueryError, ErrorContext, ErrorSeverity
+from miniflow.core.exceptions import ValidationError, ErrorSeverity
 
 
 class ScriptCRUD(BaseCRUD[Script]):
-    """Script specific CRUD operations"""
-
     def __init__(self):
         super().__init__(Script)
 
-    def create_script_record(self, session: Session, name: str, language: ScriptType, content: str, file_path: str, **kwargs) -> Script:
-        """Create new script record with validation"""
-        # Validate inputs
+    def _create_with_validation(self, session, name: str, content: str, **kwargs):
         if not name or not name.strip():
-            context = self._create_error_context("create_script", name=name)
-            raise ValidationError("Script name cannot be empty", context=context, severity=ErrorSeverity.MEDIUM)
-
-        if not language:
-            context = self._create_error_context("create_script", language=language)
-            raise ValidationError("Script language cannot be empty",context=context, severity=ErrorSeverity.MEDIUM)
+            raise ValidationError("Script name cannot be empty", severity=ErrorSeverity.MEDIUM)
 
         if not content or not content.strip():
-            context = self._create_error_context("create_script", content=content)
-            raise ValidationError("Script content cannot be empty",context=context, severity=ErrorSeverity.MEDIUM)
+            raise ValidationError("Script content cannot be empty", severity=ErrorSeverity.MEDIUM)
 
-        if not file_path or not file_path.strip():
-            context = self._create_error_context("create_script", file_path=file_path)
-            raise ValidationError("File path cannot be empty",context=context, severity=ErrorSeverity.MEDIUM)
+        name = name.strip().upper()
+        existing_record = self._filter(session, filters={"name": name})
+        if existing_record:
+            raise ValidationError(f"Script by '{name}' already exists", severity=ErrorSeverity.MEDIUM)
 
-        # Check if name already exists
-        existing = self.find_by_name(session, name.strip())
-        if existing:
-            context = self._create_error_context("create_script", name=name)
-            raise ValidationError(f"Script name '{name}' already exists",context=context, severity=ErrorSeverity.MEDIUM)
+        return self._create(session, name=name, content=content, **kwargs)
 
-        # Get file extension from file path
-        file_extension = os.path.splitext(file_path)[1]
+    def update_test_stats(self, session, record_id, test_status, test_coverage, last_test_run_at, test_results):
+        payload = {
+            'test_status': test_status,
+            'test_coverage': test_coverage,
+            'last_test_run_at': last_test_run_at,
+            'test_results': test_results
+        }
+        return self._update(session, record_id, **payload)
 
-        # Prepare data
-        record_payload = {
-            'name': name.strip(),
-            'language': language,
-            'content': content.strip(),
-            'description': kwargs.get('description'),
-            'version': kwargs.get('version', '1.0.0'),
-            'category': kwargs.get('category', 'default'),
-            'subcategory': kwargs.get('subcategory'),
-            'file_extension': file_extension,
-            'file_path': file_path.strip(),
-            'file_size': len(content.encode('utf-8')),
-            'required_packages': kwargs.get('required_packages', []),
-            'input_schema': kwargs.get('input_schema', {}),
-            'output_schema': kwargs.get('output_schema', {}),
-            'test_input_params': kwargs.get('test_input_params', {}),
-            'test_output_params': kwargs.get('test_output_params', {})
+    def update_performance_metrics(self, session, record_id, avg_execution_time, min_execution_time, max_execution_time, test_results, success_rate, total_executions):
+        payload = {
+            'avg_execution_time': avg_execution_time,
+            'min_execution_time': min_execution_time,
+            'max_execution_time': max_execution_time,
+            'test_results': test_results,
+            'success_rate': success_rate,
+            'total_executions': total_executions
+        }
+        return self._update(session, record_id, **payload)
+
+    def get_test_stats(self, session, record_id):
+        record = self._get_by_id(session, record_id)
+        return {
+            'test_status': record.test_status,
+            'test_coverage': record.test_coverage,
+            'last_test_run_at': record.last_test_run_at,
+            'test_results': record.test_results
         }
 
-        return self.create(session, **record_payload)
-
-
-    def delete_script_record(self, session: Session, record_id: str) -> Script:
-        """Delete script record"""
-        if not record_id or not record_id.strip():
-            context = self._create_error_context("delete_script", record_id=record_id)
-            raise ValidationError("Record ID cannot be empty", context=context, severity=ErrorSeverity.HIGH)
-
-        record = self.find_by_id(session, record_id)
-        if not record:
-            context = self._create_error_context("delete_script", record_id=record_id)
-            raise DatabaseQueryError(f"Script '{record_id}' not found",context=context, severity=ErrorSeverity.HIGH)
-
-        return self.delete(session, record_id)
-
+    def get_performance_metrics(self, session, record_id):
+        record = self._get_by_id(session, record_id)
+        return {
+            'avg_execution_time': record.avg_execution_time,
+            'min_execution_time': record.min_execution_time,
+            'max_execution_time': record.max_execution_time,
+            'test_results': record.test_results,
+            'success_rate': record.success_rate,
+            'total_executions': record.total_executions
+        }

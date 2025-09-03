@@ -11,31 +11,12 @@ class WorkflowStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     DEACTIVATED = "DEACTIVATED"
 
-class ScriptType(str, enum.Enum):
-    PYTHON = "PY"
-    BASH = "SH"
 
 class ScriptTestStatus(str, enum.Enum):
     UNTESTED = "UNTESTED"
     PASSED = "PASSED"
     FAILED = "FAILED"
 
-class CredentialType(str, enum.Enum):
-    OAUTH2 = "OAUTH2"
-    API_KEY = "API_KEY"
-    BASIC_AUTH = "BASIC_AUTH"
-    TOKEN = "TOKEN"
-    CERTIFICATE = "CERTIFICATE"
-
-class CredentialProvider(str, enum.Enum):
-    GOOGLE = "GOOGLE"
-    MICROSOFT = "MICROSOFT"
-    SLACK = "SLACK"
-    GITHUB = "GITHUB"
-    GITLAB = "GITLAB"
-    AWS = "AWS"
-    AZURE = "AZURE"
-    CUSTOM = "CUSTOM"
 
 class ValidationStatus(str, enum.Enum):
     UNTESTED = "UNTESTED"
@@ -44,11 +25,13 @@ class ValidationStatus(str, enum.Enum):
     INVALID = "INVALID"
     ERROR = "ERROR"
 
+
 class ConditionType(str, enum.Enum):
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"
     ALWAYS = "ALWAYS"
     CONDITIONAL = "CONDITIONAL"
+
 
 class ExecutionStatus(str, enum.Enum):
     PENDING = "PENDING"
@@ -57,17 +40,20 @@ class ExecutionStatus(str, enum.Enum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 
+
 class ExecutionOutputStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     TIMEOUT = "TIMEOUT"
-    CANCELLED = "CANCELED"
+    CANCELLED = "CANCELLED"  # Tutarlılık için düzeltildi
+
 
 class ArchiveReason(str, enum.Enum):
     AUTO_CLEANUP = "AUTO CLEANUP"
-    MANUAL_ARCHIVE = "MANUEL ARCHIVE"
+    MANUAL_ARCHIVE = "MANUAL ARCHIVE"  # "MANUEL" -> "MANUAL" düzeltildi
     RETENTION_POLICY = "RETENTION POLICY"
     SYSTEM_CLEANUP = "SYSTEM CLEANUP"
+
 
 class AuditAction(str, enum.Enum):
     CREATE = "CREATE"
@@ -76,23 +62,26 @@ class AuditAction(str, enum.Enum):
     EXECUTE = "EXECUTE"
     ARCHIVE = "ARCHIVE"
 
+
 class VariableScope(str, enum.Enum):
-    GLOBAL = "global"
-    WORKFLOW = "workflow"
-    TRIGGER = "trigger"
-    USER = "user"
-    NODE = "node"
+    GLOBAL = "GLOBAL"
+    WORKFLOW = "WORKFLOW"
+    TRIGGER = "TRIGGER"
+    USER = "USER"
+    NODE = "NODE"
+
 
 class VariableType(str, enum.Enum):
-    STRING = "string"
-    INTEGER = "integer"
-    FLOAT = "float"
-    BOOLEAN = "boolean"
-    JSON = "json"
-    SECRET = "secret"
-    CREDENTIAL = "credential"
-    FILE_PATH = "file_path"
-    URL = "url"
+    STRING = "STRING"
+    INTEGER = "INTEGER"
+    FLOAT = "FLOAT"
+    BOOLEAN = "BOOLEAN"
+    JSON = "JSON"
+    SECRET = "SECRET"
+    CREDENTIAL = "CREDENTIAL"
+    FILE_PATH = "FILE_PATH"
+    URL = "URL"
+
 
 Base = declarative_base()
 
@@ -120,23 +109,74 @@ class BaseModel(Base):
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(id={self.id})>"
 
-    def to_dict(self) -> dict:
-        """Convert model instance to dictionary"""
+    def to_dict(self, include_relationships=False, exclude_fields=None) -> dict:
+
         result = {}
+        exclude_fields = exclude_fields or []
 
+        # Process table columns
         for column in self.__table__.columns:
-            value = getattr(self, column.name)
+            field_name = column.name
+            if field_name in exclude_fields:
+                continue
 
-            if isinstance(value, datetime):
-                value = value.isoformat()
-            elif isinstance(value, enum.Enum):
-                value = value.value
-            elif hasattr(value, 'to_dict'):
-                value = value.to_dict()
+            try:
+                value = getattr(self, field_name)
+                result[field_name] = self._serialize_value(value)
+            except Exception:
+                # Skip problematic fields silently
+                continue
 
-            result[column.name] = value
+        # Process relationships if requested
+        if include_relationships:
+            for relationship_name in self.__mapper__.relationships.keys():
+                if relationship_name in exclude_fields:
+                    continue
+
+                try:
+                    relationship_value = getattr(self, relationship_name)
+                    result[relationship_name] = self._serialize_relationship(relationship_value)
+                except Exception:
+                    # Skip problematic relationships
+                    continue
 
         return result
+
+    def _serialize_value(self, value):
+        """Serialize individual values"""
+        if value is None:
+            return None
+        elif isinstance(value, datetime):
+            return value.isoformat()
+        elif isinstance(value, enum.Enum):
+            return value.value
+        elif isinstance(value, (int, float, str, bool, list, dict)):
+            return value
+        else:
+            # Try to convert to string for unknown types
+            try:
+                return str(value)
+            except Exception:
+                return None
+
+    def _serialize_relationship(self, relationship_value):
+        """Serialize relationship values safely"""
+        if relationship_value is None:
+            return None
+        elif hasattr(relationship_value, '__iter__') and not isinstance(relationship_value, (str, dict)):
+            # Collection relationship (one-to-many, many-to-many)
+            return [
+                item.to_dict(include_relationships=False) if hasattr(item, 'to_dict') else str(item)
+                for item in relationship_value
+            ]
+        else:
+            # Single relationship (one-to-one, many-to-one)
+            return (
+                relationship_value.to_dict(include_relationships=False)
+                if hasattr(relationship_value, 'to_dict')
+                else str(relationship_value)
+            )
+
 
 class EnvironmentVariable(BaseModel):
     __prefix__ = "EV"
@@ -156,12 +196,13 @@ class EnvironmentVariable(BaseModel):
     access_count = Column(Integer, default=0, nullable=False)
     last_modified_by = Column(String(20), nullable=True)
 
+
 class FileUpload(BaseModel):
     __prefix__ = "FU"
     __tablename__ = 'file_uploads'
 
     # Temel bilgiler
-    name = Column(String(255),unique=True, nullable=False, index=True)  # file_name.file_extension format
+    name = Column(String(255), unique=True, nullable=False, index=True)  # file_name.file_extension format
     filename = Column(String(255), nullable=False)  # Base filename without extension
     file_extension = Column(String(20), nullable=True)  # File extension (.pdf, .txt, etc.)
     file_path = Column(Text, unique=True, nullable=False)  # Absolute path to file
@@ -180,7 +221,6 @@ class Script(BaseModel):
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
     version = Column(String(20), default="1.0.0", nullable=False)
-    language = Column(Enum(ScriptType), nullable=False, index=True)
 
     # Category information
     category = Column(String(50), nullable=False, index=True)
@@ -203,7 +243,7 @@ class Script(BaseModel):
 
     # Test ve kalite
     test_status = Column(Enum(ScriptTestStatus), default=ScriptTestStatus.UNTESTED, nullable=False, index=True)
-    test_coverage = Column(Integer, nullable=True)  # Yüzde olarak
+    test_coverage = Column(Float, nullable=True)  # Yüzde olarak
     last_test_run_at = Column(DateTime, nullable=True, index=True)
     test_results = Column(JSON, default=dict, nullable=False)
 
@@ -234,21 +274,22 @@ class Workflow(BaseModel):
     status_message = Column(Text, nullable=True)
 
     # Relationships
-    nodes = relationship("Node", back_populates="workflow", cascade="all, delete-orphan")
-    edges = relationship("Edge", back_populates="workflow", cascade="all, delete-orphan")
-    executions = relationship("Execution", back_populates="workflow", cascade="all, delete-orphan")
+    nodes = relationship("Node", back_populates="workflow")
+    edges = relationship("Edge", back_populates="workflow")
+    executions = relationship("Execution", back_populates="workflow")
 
 
 class Node(BaseModel):
     __prefix__ = "ND"
     __tablename__ = 'nodes'
 
-    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    script_id = Column(String(12), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'),nullable=False)
+    script_id = Column(String(20), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
 
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     params = Column(JSON, nullable=True, default=dict)
+    meta_data = Column(JSON, default=dict, nullable=True)
     max_retries = Column(Integer, default=3, nullable=False)
     timeout_seconds = Column(Integer, default=300, nullable=False)
 
@@ -269,9 +310,9 @@ class Edge(BaseModel):
     __prefix__ = "ED"
     __tablename__ = 'edges'
 
-    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    from_node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
-    to_node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    from_node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    to_node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
     condition_type = Column(Enum(ConditionType), default=ConditionType.SUCCESS, nullable=False)
 
@@ -285,7 +326,7 @@ class Execution(BaseModel):
     __prefix__ = "EX"
     __tablename__ = 'executions'
 
-    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
 
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False)
     pending_nodes = Column(Integer, default=0, nullable=False)
@@ -304,9 +345,9 @@ class ExecutionInput(BaseModel):
     __prefix__ = "EI"
     __tablename__ = 'execution_inputs'
 
-    execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
-    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'),nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'),nullable=False)
+    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
     priority = Column(Integer, default=0, nullable=False)
     dependency_count = Column(Integer, default=0, nullable=False)
@@ -327,12 +368,12 @@ class ExecutionOutput(BaseModel):
     __prefix__ = "EO"
     __tablename__ = 'execution_outputs'
 
-    execution_id = Column(String(12), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
-    workflow_id = Column(String(12), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    node_id = Column(String(12), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
     status = Column(Enum(ExecutionOutputStatus), nullable=False)
-    result_data = Column(JSON, nullable=True)
+    result_data = Column(JSON, nullable=True, default=dict)
     started_at = Column(DateTime, nullable=True)
     ended_at = Column(DateTime, nullable=True)
 

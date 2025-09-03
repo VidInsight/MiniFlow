@@ -1,67 +1,60 @@
-from typing import List, Optional, Dict, Any
+from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError
 
-from miniflow.database.models import Execution
+from miniflow.core.exceptions import ValidationError, DatabaseQueryError, ErrorSeverity
+from miniflow.database.models import Execution, ExecutionInput, ExecutionOutput, ExecutionStatus
 from miniflow.database.crud.base_crud import BaseCRUD
-from miniflow.core.exceptions import ValidationError, DatabaseQueryError, ErrorContext, ErrorSeverity
 
 
 class ExecutionCRUD(BaseCRUD[Execution]):
-    """Execution specific CRUD operations (READ-ONLY)"""
-
     def __init__(self):
         super().__init__(Execution)
 
-    def get_execution_by_id(self, session: Session, execution_id: str) -> Optional[Execution]:
-        """Get execution by ID"""
-        return self.find_by_id(session, execution_id)
+    def _create_with_validation(self, session, workflow_id: str, **kwargs):
+        if not workflow_id or not workflow_id.strip():
+            raise ValidationError("Workflow ID cannot be empty", severity=ErrorSeverity.HIGH)
 
-    def get_all_executions(self, session: Session, skip: int = 0, limit: int = 100) -> List[Execution]:
-        """Get all executions with pagination"""
-        return self.get_all(session, skip=skip, limit=limit, order_by="started_at")
+        workflow_id = workflow_id.strip()
+        return self._create(session, workflow_id=workflow_id, **kwargs)
 
-    def get_executions_by_workflow(self, session: Session, workflow_id: str, skip: int = 0, limit: int = 100) -> List[Execution]:
-        """Get all executions for a specific workflow"""
+    def _delete_execution(self, session: Session, record_id: str) -> Execution:
         try:
-            filters = {'workflow_id': workflow_id}
-            return self.filter(session, filters, skip=skip, limit=limit, order_by_field="started_at")
+            execution = self._get_by_id(session, record_id)
+            if not execution:
+                context = self._create_error_context("_delete_execution", record_id=record_id)
+                raise DatabaseQueryError(f"Execution with ID '{record_id}' not found", context=context, severity=ErrorSeverity.HIGH)
+            
+            # Check execution status - prevent deletion of active executions
+            if execution.status in [ExecutionStatus.RUNNING, ExecutionStatus.PENDING]:
+                context = self._create_error_context("_delete_execution", record_id=record_id, status=execution.status.value)
+                raise ValidationError(
+                    f"Cannot delete execution '{record_id}' - execution is {execution.status.value}. "
+                    f"Only COMPLETED, FAILED, or CANCELLED executions can be deleted.",
+                    context=context,
+                    severity=ErrorSeverity.HIGH
+                )
+            
+            input_count = session.query(ExecutionInput).filter(ExecutionInput.execution_id == record_id).count()
+            output_count = session.query(ExecutionOutput).filter(ExecutionOutput.execution_id == record_id).count()
+            
+            self.logger.info(f"Deleting execution {record_id} (status: {execution.status.value}) with {input_count} inputs and {output_count} outputs")
+            
+            if input_count > 0:
+                session.query(ExecutionInput).filter(ExecutionInput.execution_id == record_id).delete()
+                self.logger.info(f"Deleted {input_count} execution inputs for execution {record_id}")
+            
+            if output_count > 0:
+                session.query(ExecutionOutput).filter(ExecutionOutput.execution_id == record_id).delete()
+                self.logger.info(f"Deleted {output_count} execution outputs for execution {record_id}")
+            
+            deleted_execution = self._delete(session, record_id)
+            
+            self.logger.info(f"Successfully deleted execution {record_id} and all related records")
+            return deleted_execution
+            
         except Exception as e:
-            context = self._create_error_context("get_executions_by_workflow", workflow_id=workflow_id)
-            raise DatabaseQueryError(f"Failed to get executions for workflow '{workflow_id}': {str(e)}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-    def get_executions_by_status(self, session: Session, status: str, skip: int = 0, limit: int = 100) -> List[Execution]:
-        """Get all executions with specific status"""
-        try:
-            filters = {'status': status}
-            return self.filter(session, filters, skip=skip, limit=limit, order_by_field="started_at")
-        except Exception as e:
-            context = self._create_error_context("get_executions_by_status", status=status)
-            raise DatabaseQueryError(f"Failed to get executions with status '{status}': {str(e)}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-    def get_executions_by_workflow_and_status(self, session: Session, workflow_id: str, status: str, skip: int = 0, limit: int = 100) -> List[Execution]:
-        """Get executions filtered by both workflow and status"""
-        try:
-            filters = {'workflow_id': workflow_id, 'status': status}
-            return self.filter(session, filters, skip=skip, limit=limit, order_by_field="started_at")
-        except Exception as e:
-            context = self._create_error_context("get_executions_by_workflow_and_status", workflow_id=workflow_id, status=status)
-            raise DatabaseQueryError(f"Failed to get executions for workflow '{workflow_id}' with status '{status}': {str(e)}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-    def count_executions_by_workflow(self, session: Session, workflow_id: str) -> int:
-        """Count executions for a specific workflow"""
-        try:
-            filters = {'workflow_id': workflow_id}
-            return self.count_filtered(session, filters)
-        except Exception as e:
-            context = self._create_error_context("count_executions_by_workflow", workflow_id=workflow_id)
-            raise DatabaseQueryError(f"Failed to count executions for workflow '{workflow_id}': {str(e)}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-    def count_executions_by_status(self, session: Session, status: str) -> int:
-        """Count executions with specific status"""
-        try:
-            filters = {'status': status}
-            return self.count_filtered(session, filters)
-        except Exception as e:
-            context = self._create_error_context("count_executions_by_status", status=status)
-            raise DatabaseQueryError(f"Failed to count executions with status '{status}': {str(e)}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            context = self._create_error_context("_delete_execution", record_id=record_id)
+            if isinstance(e, (DatabaseQueryError, ValidationError)):
+                raise e
+            raise DatabaseQueryError(f"Failed to delete execution {record_id}: {str(e)}", context=context, severity=ErrorSeverity.HIGH) from e
