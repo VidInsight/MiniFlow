@@ -136,8 +136,8 @@ class FileUploadOperations(BaseBFFOperations[FileUploadOrchestrator]):
             raise
 
     # GET BY ID
-    async def get_file_upload_record(self, record_id: str) -> Optional[Dict[str, Any]]:
-        response_from_db = await self._get_record(record_id)
+    async def get_file_upload_record(self, record_id: str, include_relationships: bool = False, exclude_fields: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        response_from_db = await self._get_record(record_id, include_relationships, exclude_fields)
         return response_from_db
 
     # DELETE WITH FILE CLEANUP (Based on existing delete_file_upload method)

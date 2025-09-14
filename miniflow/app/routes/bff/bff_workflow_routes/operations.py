@@ -48,9 +48,9 @@ class WorkflowOperations(BaseBFFOperations[WorkflowOrchestrator]):
         }
 
     # GET BY ID
-    async def get_workflow_record(self, record_id: str) -> Optional[Dict[str, Any]]:
-        response_from_db = await self._get_record(record_id)
-        return self._simplify_workflow_item(response_from_db)
+    async def get_workflow_record(self, record_id: str, include_relationships: bool = False, exclude_fields: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        response_from_db = await self._get_record(record_id, include_relationships, exclude_fields)
+        return self._simplify_workflow_item(response_from_db, exclude_fields)
 
     # UPDATE
     async def update_workflow_record(self, record_id: str, request: WorkflowUpdateRequest) -> Dict[str, Any]:
@@ -108,3 +108,8 @@ class WorkflowOperations(BaseBFFOperations[WorkflowOrchestrator]):
             'skip': response_from_db.get('skip', request.skip),
             'limit': response_from_db.get('limit', request.limit)
         }
+
+    # GET STATS
+    async def get_stats(self, request_id: str) -> Dict[str, Any]:
+        response_from_db = await self.orchestrator.get_stats(request_id)
+        return response_from_db

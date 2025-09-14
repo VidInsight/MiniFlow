@@ -12,26 +12,31 @@ from .schemas import ExecutionOutputFilterRequest
 
 router = APIRouter()
 
-@router.get("/{execution_output_id}", response_model=Dict[str, Any])
-@with_api_error_handling(operation="get_execution_output")
-async def get_execution_output(execution_output_id: str, operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
-    result = await operations.get_execution_output_record(execution_output_id)
-    return APIResponse(data=result, message="Retrieved successfully", correlation_id=correlation_id)
+# SPECIFIC ROUTES FIRST (before parameterized routes)
 
-@router.get("/", response_model=Dict[str, Any])
+@router.get("/count", response_model=APIResponse[Dict[str, Any]])
+@with_api_error_handling(operation="count_execution_outputs")
+async def count_execution_outputs(operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
+    result = await operations.count_execution_output_records()
+    return APIResponse(data={"count": result}, correlation_id=correlation_id)
+
+@router.get("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="list_execution_outputs")
 async def list_execution_outputs(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), order_by: Optional[str] = Query(None), include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
     exclude_list = exclude_fields.split(',') if exclude_fields else None
     result = await operations.list_execution_output_records(skip, limit, order_by, include_relationships, exclude_list)
     return APIResponse(data=result, message="Retrieved successfully", correlation_id=correlation_id)
 
-@router.get("/count", response_model=Dict[str, Any])
-@with_api_error_handling(operation="count_execution_outputs")
-async def count_execution_outputs(operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
-    result = await operations.count_execution_output_records()
-    return APIResponse(data={"count": result}, correlation_id=correlation_id)
+# PARAMETERIZED ROUTES LAST
 
-@router.post("/filter", response_model=Dict[str, Any])
+@router.get("/{execution_output_id}", response_model=APIResponse[Dict[str, Any]])
+@with_api_error_handling(operation="get_execution_output")
+async def get_execution_output(execution_output_id: str, include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
+    exclude_list = exclude_fields.split(',') if exclude_fields else None
+    result = await operations.get_execution_output_record(execution_output_id, include_relationships, exclude_list)
+    return APIResponse(data=result, message="Retrieved successfully", correlation_id=correlation_id)
+
+@router.post("/filter", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="filter_execution_outputs")
 async def filter_execution_outputs(request: ExecutionOutputFilterRequest, operations: ExecutionOutputOperations = Depends(get_execution_output_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.filter_execution_output_records(request)

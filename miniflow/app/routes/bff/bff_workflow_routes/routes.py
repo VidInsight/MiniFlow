@@ -14,13 +14,13 @@ router = APIRouter()
 
 # SPECIFIC ROUTES FIRST (before parameterized routes)
 
-@router.get("/count", response_model=Dict[str, Any])
+@router.get("/count", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="count_workflows")
 async def count_workflows(operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.count_workflow_records()
     return APIResponse(data={"count": result}, message="Workflows count retrieved", correlation_id=correlation_id)
 
-@router.post("/filter", response_model=Dict[str, Any])
+@router.post("/filter", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="filter_workflows")
 async def filter_workflows(request: WorkflowFilterRequest, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.filter_workflow_records(request)
@@ -28,13 +28,13 @@ async def filter_workflows(request: WorkflowFilterRequest, operations: WorkflowO
 
 # GENERAL ROUTES
 
-@router.post("/", response_model=Dict[str, Any])
+@router.post("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="create_workflow")
 async def create_workflow(request: WorkflowCreateRequest, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.create_workflow_record(request)
     return APIResponse(data=result, message="Workflow created", correlation_id=correlation_id)
 
-@router.get("/", response_model=Dict[str, Any])
+@router.get("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="list_workflows")
 async def list_workflows(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), order_by: Optional[str] = Query(None), include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     exclude_list = exclude_fields.split(',') if exclude_fields else None
@@ -43,20 +43,27 @@ async def list_workflows(skip: int = Query(0, ge=0), limit: int = Query(100, ge=
 
 # PARAMETERIZED ROUTES LAST
 
-@router.get("/{workflow_id}", response_model=Dict[str, Any])
+@router.get("/{workflow_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="get_workflow")
-async def get_workflow(workflow_id: str, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
-    result = await operations.get_workflow_record(workflow_id)
+async def get_workflow(workflow_id: str, include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
+    exclude_list = exclude_fields.split(',') if exclude_fields else None
+    result = await operations.get_workflow_record(workflow_id, include_relationships, exclude_list)
     return APIResponse(data=result, message="Workflow retrieved", correlation_id=correlation_id)
 
-@router.put("/{workflow_id}", response_model=Dict[str, Any])
+@router.put("/{workflow_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="update_workflow")
 async def update_workflow(workflow_id: str, request: WorkflowUpdateRequest, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.update_workflow_record(workflow_id, request)
     return APIResponse(data=result, message="Workflow updated", correlation_id=correlation_id)
 
-@router.delete("/{workflow_id}", response_model=Dict[str, Any])
+@router.delete("/{workflow_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="delete_workflow")
 async def delete_workflow(workflow_id: str, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.delete_workflow_record(workflow_id)
     return APIResponse(data=result, message="Workflow deleted", correlation_id=correlation_id)
+
+@router.get("/{workflow_id}/stats", response_model=APIResponse[Dict[str, Any]])
+@with_api_error_handling(operation="get_stats")
+async def get_stats(workflow_id: str, operations: WorkflowOperations = Depends(get_workflow_operations), correlation_id: str = Depends(get_current_correlation_id)):
+    result = await operations.get_stats(workflow_id)
+    return APIResponse(data=result, message="Workflow Stats", correlation_id=correlation_id)

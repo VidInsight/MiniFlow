@@ -122,12 +122,14 @@ class BaseBFFOperations(ABC, Generic[T]):
             self.logger.error(f"Failed to create {self.entity_name}: {str(e)}")
             raise DatabaseError(f"Failed to create {self.entity_name}: {str(e)}", context=context, severity=ErrorSeverity.HIGH,source_error=e)
     
-    async def _get_record(self, entity_id: str) -> Dict[str, Any]:
+    async def _get_record(self, entity_id: str, include_relationships: bool = False, exclude_fields: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Kimliğe göre tek bir kayıt alır
         
         Argümanlar:
             entity_id: Varlığın kimliği
+            include_relationships: İlişkili varlıkların dahil edilip edilmeyeceği
+            exclude_fields: Yanıttan hariç tutulacak alanlar
             
         Dönüş değeri:
             Dict: Varlık verileri
@@ -140,7 +142,7 @@ class BaseBFFOperations(ABC, Generic[T]):
             self.logger.info(f"Getting {self.entity_name} record: {entity_id}")
             
             # Get entity via orchestrator
-            record = self.orchestrator.get_by_id(entity_id)
+            record = self.orchestrator.get_by_id(entity_id, include_relationships, exclude_fields)
             if not record:
                 context = self._create_error_context("get_record_by_id", entity_id=entity_id)
                 raise ResourceNotFound(f"{self.entity_name.title()} '{entity_id}' not found", context=context, severity=ErrorSeverity.MEDIUM)

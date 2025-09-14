@@ -1,0 +1,15 @@
+meta {
+  name: PERFORMACE STATS
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/scripts/{{SCRIPT_ID}}/performance-stats
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

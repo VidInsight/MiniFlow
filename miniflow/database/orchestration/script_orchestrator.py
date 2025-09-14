@@ -129,11 +129,3 @@ class ScriptOrchestrator(BaseOrchestrator):
         except Exception as e:
             context = self._create_error_context("get_performance_stats", record_id=record_id)
             raise OrchestrationError(str(e), context=context) from e
-    @with_session
-    def get_total_count(self, session: Session) -> int:
-        """Get total count of all scripts."""
-        try:
-            return self.script_crud._count(session) or 0
-        except Exception as e:
-            context = self._create_error_context("get_total_count")
-            raise OrchestrationError(f"Failed to get total script count: {str(e)}", context=context) from e

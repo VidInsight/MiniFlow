@@ -130,3 +130,17 @@ class ScriptOperationResponse(BaseModel):
 class CountResponse(BaseModel):
     """Count response"""
     count: int = Field(description="Total count")
+
+
+class ScriptTestStatsResponse(BaseModel):
+    test_status: str = Field(description="Test status")
+    test_coverage: float = Field(description="Test coverage")
+    last_test_run_at: str = Field(description="Last test run at")
+    test_results: dict = Field(description="Test results")
+
+class ScriptPerformanceResultResponse(BaseModel):
+    avg_execution_time: float = Field(description="Average execution time")
+    min_execution_time: float = Field(description="Minimum execution time")
+    max_execution_time: float = Field(description="Maximum execution time")
+    success_rate: float = Field(description="Success rate")
+    total_executions:  int = Field(description="Total executions")

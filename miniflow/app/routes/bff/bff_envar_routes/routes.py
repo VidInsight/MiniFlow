@@ -14,14 +14,14 @@ router = APIRouter()
 
 # SPECIFIC ROUTES FIRST (before parameterized routes)
 
-@router.get("/count", response_model=Dict[str, Any])
+@router.get("/count", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="count_envars")
 async def count_envars(operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Count environment variables"""
     result = await operations.count_envar_records()
     return APIResponse(data={"count": result}, message="Count retrieved", correlation_id=correlation_id)
 
-@router.post("/filter", response_model=Dict[str, Any])
+@router.post("/filter", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="filter_envars")
 async def filter_envars(request: EnvironmentVariableFilterRequest, operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Filter environment variables"""
@@ -30,14 +30,14 @@ async def filter_envars(request: EnvironmentVariableFilterRequest, operations: E
 
 # GENERAL ROUTES
 
-@router.post("/", response_model=Dict[str, Any])
+@router.post("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="create_envar")
 async def create_envar(request: EnvironmentVariableCreateRequest, operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Create environment variable"""
     result = await operations.create_envar_record(request)
     return APIResponse(data=result, message="Environment variable created", correlation_id=correlation_id)
 
-@router.get("/", response_model=Dict[str, Any])
+@router.get("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="list_envars")
 async def list_envars(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), order_by: Optional[str] = Query(None), include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """List environment variables"""
@@ -47,21 +47,22 @@ async def list_envars(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, 
 
 # PARAMETERIZED ROUTES LAST
 
-@router.get("/{envar_id}", response_model=Dict[str, Any])
+@router.get("/{envar_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="get_envar")
-async def get_envar(envar_id: str, operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
+async def get_envar(envar_id: str, include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Get environment variable by ID"""
-    result = await operations.get_envar_record(envar_id)
+    exclude_list = exclude_fields.split(',') if exclude_fields else None
+    result = await operations.get_envar_record(envar_id, include_relationships, exclude_list)
     return APIResponse(data=result, message="Environment variable retrieved", correlation_id=correlation_id)
 
-@router.put("/{envar_id}", response_model=Dict[str, Any])
+@router.put("/{envar_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="update_envar")
 async def update_envar(envar_id: str, request: EnvironmentVariableUpdateRequest, operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Update environment variable"""
     result = await operations.update_envar_record(envar_id, request)
     return APIResponse(data=result, message="Environment variable updated", correlation_id=correlation_id)
 
-@router.delete("/{envar_id}", response_model=Dict[str, Any])
+@router.delete("/{envar_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="delete_envar")
 async def delete_envar(envar_id: str, operations: EnvironmentVariableOperations = Depends(get_envar_operations), correlation_id: str = Depends(get_current_correlation_id)):
     """Delete environment variable"""

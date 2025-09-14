@@ -19,28 +19,34 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
         self.orchestrator = orchestrator
         super().__init__(orchestrator, "script")
 
-    def _simplify_workflow_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Workflow verisini sade format'a çevir - Auto-reload test"""
-        return {
-            'id': item['id'],
-            'created_at': item['created_at'],
-            'updated_at': item['updated_at'],
-            'name': item['name'],
-            'description': item['description'],
-            'version': item['version'],
-            'category': item['category'],
-            'subcategory': item['subcategory'],
-            'file_extension': item['file_extension'],
-            'content': item['content'],
-            'author': item['author'],
-            'input_schema': item['input_schema'],
-            'output_schema': item['output_schema'],
-            'test_input_params': item['test_input_params'],
-            'test_output_params': item['test_output_params'],
+    def _simplify_workflow_item(self, item: Dict[str, Any], exclude_fields: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Script verisini sade format'a çevir"""
+        simplified_item = {
+            'id': item.get('id'),
+            'created_at': item.get('created_at'),
+            'updated_at': item.get('updated_at'),
+            'name': item.get('name'),
+            'description': item.get('description'),
+            'version': item.get('version'),
+            'category': item.get('category'),
+            'subcategory': item.get('subcategory'),
+            'file_extension': item.get('file_extension'),
+            'content': item.get('content'),
+            'author': item.get('author'),
+            'input_schema': item.get('input_schema'),
+            'output_schema': item.get('output_schema'),
+            'test_input_params': item.get('test_input_params'),
+            'test_output_params': item.get('test_output_params'),
         }
+        
+        # Exclude fields if specified
+        if exclude_fields:
+            for field in exclude_fields:
+                simplified_item.pop(field, None)
+        
+        return simplified_item
 
-    def _generate_file_path(self, name: str, category: str, subcategory: Optional[str], 
-                           file_extension: Optional[str]) -> str:
+    def _generate_file_path(self, name: str, category: str, subcategory: Optional[str], file_extension: Optional[str]) -> str:
         """Generate file path for script - matches existing pattern"""
         # Build file path: scripts/{category}/{subcategory}/{name}.{ext}
         parts = ["scripts", category]
@@ -172,9 +178,9 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
             raise
 
     # GET BY ID
-    async def get_script_record(self, record_id: str) -> Optional[Dict[str, Any]]:
-        response_from_db = await self._get_record(record_id)
-        return self._simplify_workflow_item(response_from_db)
+    async def get_script_record(self, record_id: str, include_relationships: bool = False, exclude_fields: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        response_from_db = await self._get_record(record_id, include_relationships, exclude_fields)
+        return self._simplify_workflow_item(response_from_db, exclude_fields)
 
     # UPDATE WITH FILE OPERATIONS (Atomic file-database updates)
     async def update_script_record(self, record_id: str, request: ScriptUpdateRequest) -> Dict[str, Any]:
@@ -304,7 +310,7 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
         response_from_db = await self._get_all_records(skip, limit, order_by, include_relationships, exclude_fields)
 
         simplified_items = [
-            self._simplify_workflow_item(item)
+            self._simplify_workflow_item(item, exclude_fields)
             for item in response_from_db.get('items', [])
         ]
 
@@ -320,12 +326,12 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
         response_from_db = await self._count_records()
         return response_from_db
 
-    # FILTER 
+    # FILTER
     async def filter_script_records(self, request: ScriptFilterRequest) -> Dict[str, Any]:
         response_from_db = await self._filter_records(request.filters, request.skip, request.limit, request.order_by_field, request.include_relationships, request.exclude_fields)
 
         simplified_items = [
-            self._simplify_workflow_item(item)
+            self._simplify_workflow_item(item, request.exclude_fields)
             for item in response_from_db.get('items', [])
         ]
 
@@ -335,3 +341,13 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
             'skip': response_from_db.get('skip', request.skip),
             'limit': response_from_db.get('limit', request.limit)
         }
+
+    # GET TEST STATS
+    async def get_test_stats(self, record_id: str) -> Dict[str, Any]:
+        database_response = self.orchestrator.get_test_stats(record_id)
+        return database_response
+
+    # GET PERFORMANCE STATS
+    async def get_performance_stats(self, record_id: str) -> Dict[str, Any]:
+        database_response = self.orchestrator.get_performance_stats(record_id)
+        return database_response

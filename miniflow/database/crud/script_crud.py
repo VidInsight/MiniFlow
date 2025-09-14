@@ -109,7 +109,6 @@ class ScriptCRUD(BaseCRUD[Script]):
             'avg_execution_time': record.avg_execution_time,
             'min_execution_time': record.min_execution_time,
             'max_execution_time': record.max_execution_time,
-            'test_results': record.test_results,
             'success_rate': record.success_rate,
             'total_executions': record.total_executions
         }

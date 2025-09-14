@@ -128,6 +128,7 @@ class WorkflowOrchestrator(BaseOrchestrator):
         except Exception as e:
             context = self._create_error_context("get_recently_executed", limit=limit)
             raise OrchestrationError(f"Failed to get recently executed workflows: {str(e)}", context=context) from e
+
     @with_session
     def get_system_overview_stats(self, session: Session) -> Dict[str, Any]:
         """Get system overview statistics for workflows."""

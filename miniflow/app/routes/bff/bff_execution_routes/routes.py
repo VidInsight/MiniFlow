@@ -14,13 +14,13 @@ router = APIRouter()
 
 # SPECIFIC ROUTES FIRST (before parameterized routes)
 
-@router.get("/count", response_model=Dict[str, Any])
+@router.get("/count", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="count_executions")
 async def count_executions(operations: ExecutionOperations = Depends(get_execution_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.count_execution_records()
     return APIResponse(data={"count": result}, message="Executions count retrieved", correlation_id=correlation_id)
 
-@router.post("/filter", response_model=Dict[str, Any])
+@router.post("/filter", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="filter_executions")
 async def filter_executions(request: ExecutionFilterRequest, operations: ExecutionOperations = Depends(get_execution_operations), correlation_id: str = Depends(get_current_correlation_id)):
     result = await operations.filter_execution_records(request)
@@ -28,7 +28,7 @@ async def filter_executions(request: ExecutionFilterRequest, operations: Executi
 
 # GENERAL ROUTES
 
-@router.get("/", response_model=Dict[str, Any])
+@router.get("/", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="list_executions")
 async def list_executions(skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000), order_by: Optional[str] = Query(None), include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: ExecutionOperations = Depends(get_execution_operations), correlation_id: str = Depends(get_current_correlation_id)):
     exclude_list = exclude_fields.split(',') if exclude_fields else None
@@ -37,8 +37,9 @@ async def list_executions(skip: int = Query(0, ge=0), limit: int = Query(100, ge
 
 # PARAMETERIZED ROUTES LAST
 
-@router.get("/{execution_id}", response_model=Dict[str, Any])
+@router.get("/{execution_id}", response_model=APIResponse[Dict[str, Any]])
 @with_api_error_handling(operation="get_execution")
-async def get_execution(execution_id: str, operations: ExecutionOperations = Depends(get_execution_operations), correlation_id: str = Depends(get_current_correlation_id)):
-    result = await operations.get_execution_record(execution_id)
+async def get_execution(execution_id: str, include_relationships: bool = Query(False), exclude_fields: Optional[str] = Query(None), operations: ExecutionOperations = Depends(get_execution_operations), correlation_id: str = Depends(get_current_correlation_id)):
+    exclude_list = exclude_fields.split(',') if exclude_fields else None
+    result = await operations.get_execution_record(execution_id, include_relationships, exclude_list)
     return APIResponse(data=result, message="Execution retrieved", correlation_id=correlation_id)
