@@ -1,0 +1,25 @@
+meta {
+  name: UPDATE
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/envar/{{ENVAR_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "UPDATED_API_KEY",
+    "value": "sk-updated-key-67890",
+    "description": "Güncellenmiş API anahtarı",
+    "variable_type": "SECRET",
+    "scope": "GLOBAL"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

@@ -415,7 +415,7 @@ async def monitoring_middleware(request: Request, call_next):
 ### 8. Monitoring Operations Usage
 
 ```python
-from miniflow.app.operations.monitoring_operations import MonitoringOperations
+from miniflow.app.routes.bfa.operations.monitoring_operations import MonitoringOperations
 
 
 class SystemHealthService:

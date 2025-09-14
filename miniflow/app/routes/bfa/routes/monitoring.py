@@ -20,6 +20,7 @@ from miniflow.app.routes.bfa.schemas.monitoring import (
     ClearAlertsResponse
 )
 from miniflow.core.exceptions import MiniflowException
+from miniflow.app.utils.decorators import with_api_error_handling
 
 router = APIRouter()
 monitoring_ops = MonitoringActions()
@@ -28,33 +29,34 @@ monitoring_ops = MonitoringActions()
 # ==================== SYSTEM METRICS ENDPOINTS ====================
 
 @router.get("/metrics/system", response_model=APIResponse[SystemMetricsResponse])
-async def get_system_metrics(correlation_id: str = Depends(get_current_correlation_id), auth_data: dict = Depends(verify_bfa_access)):
+@with_api_error_handling(operation="get_system_metrics")
+async def get_system_metrics(
+    correlation_id: str = Depends(get_current_correlation_id), 
+    auth_data: dict = Depends(verify_bfa_access)
+):
     """Anlık sistem metriklerini getir"""
-    try:
-        metrics = monitoring_ops.get_system_metrics()
-        
-        return APIResponse(
-            data=metrics,
-            message="System metrics retrieved",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    metrics = monitoring_ops.get_system_metrics()
+    return APIResponse(
+        data=metrics,
+        message="System metrics retrieved",
+        correlation_id=correlation_id
+    )
 
 
 @router.get("/metrics/components", response_model=APIResponse[Dict[str, ComponentMetricsResponse]])
-async def get_all_components_metrics(correlation_id: str = Depends(get_current_correlation_id), auth_data: dict = Depends(verify_bfa_access)):
+@with_api_error_handling(operation="get_all_components_metrics")
+async def get_all_components_metrics(
+    correlation_id: str = Depends(get_current_correlation_id), 
+    auth_data: dict = Depends(verify_bfa_access)
+):
     """Tüm component metriklerini getir"""
-    try:
-        components_metrics = monitoring_ops.get_all_components_metrics()
-        
-        return APIResponse(
-            data=components_metrics,
-            message=f"Retrieved metrics for {len(components_metrics)} components",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    components_metrics = monitoring_ops.get_all_components_metrics()
+    
+    return APIResponse(
+        data=components_metrics,
+        message=f"Retrieved metrics for {len(components_metrics)} components",
+        correlation_id=correlation_id
+    )
 
 
 @router.get("/metrics/component/{component_name}", response_model=APIResponse[ComponentMetricsResponse])

@@ -16,21 +16,24 @@ class EnvironmentVariableOrchestrator(BaseOrchestrator):
         return self.envar_crud
 
     @with_session
-    def create(self, session: Session, name: str, value: str, **kwargs) -> Dict[str, Any]:
+    def create(self, session: Session, **kwargs) -> Dict[str, Any]:
         try:
-            result = self.envar_crud._create_with_validation(session, name, value, **kwargs)
+            result = self.envar_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
-            context = self._create_error_context("create", name=name)
+            context = self._create_error_context("create", name=kwargs.get("name"))
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
-    def get_by_name(self, session: Session, name: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+    def update(self, session: Session, record_id: str, **kwargs) -> Dict[str, Any]:
+        if not self.envar_crud._exists(session, record_id):
+            self._handle_not_found("Environment variable", record_id, "update")
+
         try:
-            results = self.envar_crud._filter(session, filters={"name": name})
-            return self._serialize_single_result(results[0] if results else None, include_relationships, exclude_fields)
+            result = self.envar_crud._update(session, record_id, **kwargs)
+            return self._serialize_single_result(result)
         except Exception as e:
-            context = self._create_error_context("get_by_name", name=name)
+            context = self._create_error_context("update", record_id=record_id, update_fields=list(kwargs.keys()))
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
@@ -51,3 +54,12 @@ class EnvironmentVariableOrchestrator(BaseOrchestrator):
     # - count() -> int
     # - filter(filters, skip, limit, order_by_field) -> List[Dict[str, Any]]
     # - count_with_filter(filters) -> int
+
+    @with_session
+    def get_by_name(self, session: Session, name: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        try:
+            results = self.envar_crud._filter(session, filters={"name": name})
+            return self._serialize_single_result(results[0] if results else None, include_relationships, exclude_fields)
+        except Exception as e:
+            context = self._create_error_context("get_by_name", name=name)
+            raise OrchestrationError(str(e), context=context) from e

@@ -271,7 +271,34 @@ class Workflow(BaseModel):
     description = Column(Text, nullable=True)
     priority = Column(Integer, default=0, nullable=False)
     status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False)
-    status_message = Column(Text, nullable=True)
+    status_message = Column(Text, nullable=True, default='Currently no error context is avaliable')
+
+    # Workflow Statistics
+    total_executions = Column(Integer, default=0, nullable=False)
+    successful_executions = Column(Integer, default=0, nullable=False)
+    failed_executions = Column(Integer, default=0, nullable=False)
+    cancelled_executions = Column(Integer, default=0, nullable=False)
+    avg_execution_duration = Column(Float, nullable=True)  # seconds
+    min_execution_duration = Column(Float, nullable=True)  # seconds
+    max_execution_duration = Column(Float, nullable=True)  # seconds
+    last_executed_at = Column(DateTime, nullable=True, index=True)
+    last_successful_execution_at = Column(DateTime, nullable=True)
+    last_failed_execution_at = Column(DateTime, nullable=True)
+    
+    # Computed properties available as methods
+    @property
+    def success_rate(self) -> float:
+        """Calculate workflow success rate"""
+        if self.total_executions == 0:
+            return 0.0
+        return self.successful_executions / self.total_executions
+    
+    @property
+    def failure_rate(self) -> float:
+        """Calculate workflow failure rate"""
+        if self.total_executions == 0:
+            return 0.0
+        return self.failed_executions / self.total_executions
 
     # Relationships
     nodes = relationship("Node", back_populates="workflow")
@@ -283,7 +310,7 @@ class Node(BaseModel):
     __prefix__ = "ND"
     __tablename__ = 'nodes'
 
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'),nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     script_id = Column(String(20), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
 
     name = Column(String(100), nullable=False)
@@ -332,8 +359,48 @@ class Execution(BaseModel):
     pending_nodes = Column(Integer, default=0, nullable=False)
     executed_nodes = Column(Integer, default=0, nullable=False)
     results = Column(JSON, default=dict, nullable=False)
+    error_details = Column(JSON, default=dict, nullable=False)  # Detailed error information
     started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     ended_at = Column(DateTime, nullable=True)
+    
+    # Computed properties for execution analytics
+    @property
+    def duration_seconds(self) -> float:
+        """Calculate execution duration in seconds"""
+        if self.ended_at and self.started_at:
+            return (self.ended_at - self.started_at).total_seconds()
+        return 0.0
+    
+    @property
+    def is_completed(self) -> bool:
+        """Check if execution is in a completed state"""
+        return self.status in [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED]
+    
+    @property
+    def is_successful(self) -> bool:
+        """Check if execution completed successfully"""
+        return self.status == ExecutionStatus.COMPLETED
+    
+    @property
+    def node_success_rate(self) -> float:
+        """Calculate success rate of nodes within this execution"""
+        total_attempted = self.executed_nodes
+        if total_attempted == 0:
+            return 0.0
+        return self.successful_nodes / total_attempted
+    
+    @property
+    def total_nodes(self) -> int:
+        """Total number of nodes in this execution"""
+        return self.pending_nodes + self.executed_nodes
+    
+    @property
+    def progress_percentage(self) -> float:
+        """Calculate execution progress as percentage"""
+        total = self.total_nodes
+        if total == 0:
+            return 0.0
+        return (self.executed_nodes / total) * 100.0
 
     # Relationships
     workflow = relationship("Workflow", back_populates="executions")
@@ -345,9 +412,10 @@ class ExecutionInput(BaseModel):
     __prefix__ = "EI"
     __tablename__ = 'execution_inputs'
 
-    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'),nullable=False)
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'),nullable=False)
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    correlation_id = Column(String(50), nullable=True)
 
     priority = Column(Integer, default=0, nullable=False)
     dependency_count = Column(Integer, default=0, nullable=False)
@@ -355,6 +423,7 @@ class ExecutionInput(BaseModel):
 
     # Denormalized fields for performance (scheduler optimization)
     node_name = Column(String(100), nullable=False)
+    script_name = Column(String(100), nullable=True)
     script_path = Column(Text, nullable=True)
     node_params = Column(JSON, default=dict, nullable=False)
 
@@ -371,6 +440,7 @@ class ExecutionOutput(BaseModel):
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    correlation_id = Column(String(50), nullable=True)
 
     status = Column(Enum(ExecutionOutputStatus), nullable=False)
     result_data = Column(JSON, nullable=True, default=dict)

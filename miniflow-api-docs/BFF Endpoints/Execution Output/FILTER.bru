@@ -1,0 +1,27 @@
+meta {
+  name: FILTER
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/execution-outputs/filter
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "filters": {
+    },
+    "skip": 0,
+    "limit": 100,
+    "order_by_field": "created_at",
+    "include_relationships": false,
+    "exclude_fields": []
+  }
+}
+
+settings {
+  encodeUrl: true
+}

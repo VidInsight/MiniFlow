@@ -12,15 +12,17 @@ put {
 
 body:json {
   {
-    "name": "Updated Email Parser Node",
-    "description": "Enhanced email parsing with validation",
-    "max_retries": 10,
-    "params": {
-      "input_format": "json",
-      "batch_size": 200,
-      "timeout_per_item": 45,
-      "enable_validation": true
-    }
+    "name": "Updated Node Name",      // Optional
+    "description": "Updated desc",    // Optional
+    "script_id": "new_script_id",    // Optional
+    "meta_data": {                   // Optional - Will replace existing
+      "updated_key": "updated_value"
+    },
+    "params": {                      // Optional - Will replace existing
+      "new_param": "new_value"
+    },
+    "max_retries": 5,                // Optional
+    "timeout_seconds": 600           // Optional
   }
 }
 

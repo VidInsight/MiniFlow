@@ -11,24 +11,28 @@ class NodeCRUD(BaseCRUD[Node]):
     def __init__(self):
         super().__init__(Node)
 
-    def _create_with_validation(self, session, workflow_id: str, name: str, **kwargs):
+    def _create(self, session: Session, **kwargs):
+        # Safe key extraction
+        name = kwargs.get("name")
+        workflow_id = kwargs.get("workflow_id")
+
         if not name or not name.strip():
             raise ValidationError("Node name cannot be empty", severity=ErrorSeverity.MEDIUM)
+        if not workflow_id:
+            raise ValidationError("Workflow ID is required", severity=ErrorSeverity.MEDIUM)
 
         name = name.strip()
-        
+
         existing = self._filter(session, filters={"name": name, "workflow_id": workflow_id})
         if existing:
             raise ValidationError(f"Node name '{name}' already exists in workflow", severity=ErrorSeverity.MEDIUM)
 
-        node_data = {
-            "workflow_id": workflow_id,
-            "name": name,
-            **kwargs
-        }
-        return self._create(session, **node_data)
+        # Update kwargs with normalized values
+        kwargs["name"] = name
+        kwargs["workflow_id"] = workflow_id
+        return super()._create(session, **kwargs)
 
-    def _update_with_validation(self, session, record_id: str, **kwargs):
+    def _update(self, session: Session, record_id: str, **kwargs):
         if 'name' in kwargs and kwargs['name']:
             new_name = kwargs['name'].strip()
             if not new_name:
@@ -44,4 +48,4 @@ class NodeCRUD(BaseCRUD[Node]):
 
             kwargs['name'] = new_name
 
-        return self._update(session, record_id, **kwargs)
+        return super()._update(session, record_id, **kwargs)

@@ -5,23 +5,26 @@ meta {
 }
 
 post {
-  url: {{BASE_URL}}/api/bff/nodes
+  url: {{BASE_URL}}/api/bff/nodes/
   body: json
   auth: inherit
 }
 
 body:json {
-  {"workflow_id": "{{WORKFLOW_ID}}",
-    "name": "Email Parser Node",
-    "description": "Parse incoming email data",
-    "script_id": "{{SCRIPT_ID}}",
-    "params": {
-      "input_format": "json",
-      "batch_size": 100,
-      "timeout_per_item": 30
+  {
+    "workflow_id": "{{WORKFLOW_ID}}",
+    "name": "test_node_2",
+    "description": "test_desc_2",
+    "script_id": "SC-0C7B230017EB439AB",
+    "meta_data": {
+      "key": "value"
     },
-    "max_retries": 5,
-    "timeout_seconds": 600
+    "params": {
+      "input_param": "value",
+      "config_param": 123
+    },
+    "max_retries": 3,
+    "timeout_seconds": 300
   }
 }
 

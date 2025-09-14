@@ -85,3 +85,6 @@ def create_app(database_engine=None) -> FastAPI:
         return {"status": "healthy", "service": "miniflow-api"}
 
     return app
+
+# Uvicorn reload için app instance oluştur
+app = create_app()

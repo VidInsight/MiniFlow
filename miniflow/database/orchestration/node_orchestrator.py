@@ -17,11 +17,14 @@ class NodeOrchestrator(BaseOrchestrator):
         return self.node_crud
 
     @with_session
-    def create(self, session: Session, workflow_id: str, name: str, **kwargs) -> Dict[str, Any]:
+    def create(self, session: Session, **kwargs) -> Dict[str, Any]:
         try:
-            result = self.node_crud._create_with_validation(session, workflow_id, name, **kwargs)
+            result = self.node_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
+            # Safe key access
+            name = kwargs.get("name", "unknown")
+            workflow_id = kwargs.get("workflow_id", "unknown")
             context = self._create_error_context("create", workflow_id=workflow_id, name=name)
             raise OrchestrationError(str(e), context=context) from e
 
@@ -31,7 +34,7 @@ class NodeOrchestrator(BaseOrchestrator):
             self._handle_not_found("Node", record_id, "update")
 
         try:
-            result = self.node_crud._update_with_validation(session, record_id, **kwargs)
+            result = self.node_crud._update(session, record_id, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
             context = self._create_error_context("update", record_id=record_id)
@@ -59,9 +62,13 @@ class NodeOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_name_and_workflow(self, session: Session, name: str, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
         """Get node by name within a specific workflow."""
+        if not name or not workflow_id:
+            return None
         try:
-            results = self.node_crud._filter(session, filters={"name": name, "workflow_id": workflow_id}, limit=1)
-            return self._serialize_single_result(results[0] if results else None, include_relationships, exclude_fields)
+            results = self.node_crud._filter(session, filters={"name": name.strip(), "workflow_id": workflow_id}, limit=1)
+            if not results:
+                return None
+            return self._serialize_single_result(results[0], include_relationships, exclude_fields)
         except Exception as e:
             context = self._create_error_context("get_by_name_and_workflow", name=name, workflow_id=workflow_id)
             raise OrchestrationError(str(e), context=context) from e
@@ -69,9 +76,19 @@ class NodeOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_workflow(self, session: Session, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         """Get all nodes for a specific workflow."""
+        if not workflow_id:
+            return []
         try:
             results = self.node_crud._filter(session, filters={"workflow_id": workflow_id})
             return self._serialize_multiple_results(results, include_relationships, exclude_fields)
         except Exception as e:
             context = self._create_error_context("get_nodes_by_workflow", workflow_id=workflow_id)
             raise OrchestrationError(str(e), context=context) from e
+    @with_session
+    def get_total_count(self, session: Session) -> int:
+        """Get total count of all nodes."""
+        try:
+            return self.node_crud._count(session) or 0
+        except Exception as e:
+            context = self._create_error_context("get_total_count")
+            raise OrchestrationError(f"Failed to get total node count: {str(e)}", context=context) from e

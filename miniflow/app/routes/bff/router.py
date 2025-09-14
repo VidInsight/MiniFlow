@@ -6,15 +6,17 @@ Back for Frontend - Frontend için API router
 from fastapi import APIRouter, Depends
 
 from miniflow.app.core.dependencies import verify_bff_access
-from miniflow.app.routes.bff.routes.envar_bff_routes import router as envvar_router
-from miniflow.app.routes.bff.routes.fileupload_bff_routes import router as fileupload_router
-from miniflow.app.routes.bff.routes.script_bff_routes import router as script_router
-from miniflow.app.routes.bff.routes.workflow_bff_routes import router as workflow_router
-from miniflow.app.routes.bff.routes.node_bff_routes import router as node_router
-from miniflow.app.routes.bff.routes.edge_bff_routes import router as edge_router
-from miniflow.app.routes.bff.routes.execution_bff_routes import router as execution_router
-from miniflow.app.routes.bff.routes.execution_input_bff_routes import router as execution_input_router
-from miniflow.app.routes.bff.routes.execution_output_bff_routes import router as execution_output_router
+from miniflow.app.routes.bff.bff_envar_routes.routes import router as envvar_router
+from miniflow.app.routes.bff.bff_workflow_routes.routes import router as workflow_router
+from miniflow.app.routes.bff.bff_node_routes.routes import router as node_router
+from miniflow.app.routes.bff.bff_edge_routes.routes import router as edge_router
+from miniflow.app.routes.bff.bff_script_routes.routes import router as script_router
+from miniflow.app.routes.bff.bff_file_routes.routes import router as fileupload_router
+from miniflow.app.routes.bff.bff_execution_routes.routes import router as execution_router
+from miniflow.app.routes.bff.bff_execution_input_routes.routes import router as execution_input_router
+from miniflow.app.routes.bff.bff_execution_output_routes.routes import router as execution_output_router
+# TODO: Dashboard routes to be created later
+# from miniflow.app.routes.bff.dashboard.routes import router as dashboard_router
 # from miniflow.app.routes.bff.routes.credential_routes import router as credential_router  # Not implemented yet
 
 # BFF Ana router - Frontend yetkilendirmesi ile
@@ -25,20 +27,6 @@ bff_router.include_router(
     envvar_router,
     prefix="/envar",  # Environment variables prefix
     tags=["BFF - Environment Variables"]
-)
-
-# File Upload routes - files endpoints
-bff_router.include_router(
-    fileupload_router,
-    prefix="/files",  # File uploads prefix
-    tags=["BFF - File Uploads"]
-)
-
-# Script routes - scripts endpoints
-bff_router.include_router(
-    script_router,
-    prefix="/scripts",  # Scripts prefix
-    tags=["BFF - Scripts"]
 )
 
 # Workflow routes - workflows endpoints
@@ -62,6 +50,20 @@ bff_router.include_router(
     tags=["BFF - Edges"]
 )
 
+# Script routes - scripts endpoints
+bff_router.include_router(
+    script_router,
+    prefix="/scripts",  # Scripts prefix
+    tags=["BFF - Scripts"]
+)
+
+# File Upload routes - files endpoints
+bff_router.include_router(
+    fileupload_router,
+    prefix="/files",  # File uploads prefix
+    tags=["BFF - File Uploads"]
+)
+
 # Execution routes - executions endpoints (READ-ONLY)
 bff_router.include_router(
     execution_router,
@@ -82,3 +84,11 @@ bff_router.include_router(
     prefix="/execution-outputs",  # Execution Outputs prefix
     tags=["BFF - Execution Outputs"]
 )
+
+# TODO: Dashboard routes to be created later
+# Dashboard routes - dashboard endpoints (READ-ONLY)
+# bff_router.include_router(
+#     dashboard_router,
+#     prefix="/dashboard",  # Dashboard prefix
+#     tags=["BFF - Dashboard"]
+# )

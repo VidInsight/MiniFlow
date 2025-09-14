@@ -26,6 +26,8 @@ class ExecutionInputOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_priority(self, session: Session, priority: int, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
         """Get execution inputs by priority."""
+        if priority is None:
+            return []
         try:
             results = self.execution_input_crud._filter(session, filters={"priority": priority}, skip=skip, limit=limit)
             return self._serialize_multiple_results(results)
@@ -36,9 +38,10 @@ class ExecutionInputOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_execution(self, session: Session, execution_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
         """Get execution inputs by execution ID."""
+        if not execution_id:
+            return []
         try:
-            results = self.execution_input_crud._filter(session, filters={"execution_id": execution_id}, skip=skip,
-                                                        limit=limit)
+            results = self.execution_input_crud._filter(session, filters={"execution_id": execution_id}, skip=skip, limit=limit)
             return self._serialize_multiple_results(results)
         except Exception as e:
             context = self._create_error_context("get_by_execution", execution_id=execution_id)
@@ -47,6 +50,8 @@ class ExecutionInputOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_node(self, session: Session, node_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
         """Get execution inputs by node ID."""
+        if not node_id:
+            return []
         try:
             results = self.execution_input_crud._filter(session, filters={"node_id": node_id}, skip=skip, limit=limit)
             return self._serialize_multiple_results(results)
@@ -57,6 +62,8 @@ class ExecutionInputOrchestrator(BaseOrchestrator):
     @with_session
     def get_by_workflow(self, session: Session, workflow_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
         """Get execution inputs by workflow ID."""
+        if not workflow_id:
+            return []
         try:
             results = self.execution_input_crud._filter(session, filters={"workflow_id": workflow_id}, skip=skip,
                                                         limit=limit)

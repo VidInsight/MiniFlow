@@ -398,15 +398,27 @@ class MiniflowCore:
             print(f"\t* API documentation at: http://{self.api_config['host']}:{self.api_config['port']}/docs")
             print("Press Ctrl+C to stop the server")
 
-            # Uvicorn server'ı başlat - access_log ve log_level kontrolü
-            uvicorn.run(
-                self.fastapi_app,
-                host=self.api_config["host"],
-                port=self.api_config["port"],
-                log_level=self.api_config["log_level"],
-                reload=self.api_config["reload"],
-                access_log=self.api_config.get("access_log", False)  # API config'den al
-            )
+            # Uvicorn server'ı başlat - reload için app string kullan
+            if self.api_config["reload"]:
+                # Reload modunda app string kullanılmalı
+                uvicorn.run(
+                    "miniflow.app.api:app",  # String import path
+                    host=self.api_config["host"],
+                    port=self.api_config["port"],
+                    log_level=self.api_config["log_level"],
+                    reload=self.api_config["reload"],
+                    access_log=self.api_config.get("access_log", False)
+                )
+            else:
+                # Production modunda app object kullan
+                uvicorn.run(
+                    self.fastapi_app,
+                    host=self.api_config["host"],
+                    port=self.api_config["port"],
+                    log_level=self.api_config["log_level"],
+                    reload=self.api_config["reload"],
+                    access_log=self.api_config.get("access_log", False)
+                )
             
         except KeyboardInterrupt:
             print("\nReceived interrupt signal")

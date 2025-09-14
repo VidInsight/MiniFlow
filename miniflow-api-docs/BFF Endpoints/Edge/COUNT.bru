@@ -1,0 +1,15 @@
+meta {
+  name: COUNT
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/edges/count
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,28 @@
+meta {
+  name: FILTER
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/nodes/filter
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "filters": {
+      "name": "Data Processing Node"
+    },
+    "skip": 0,
+    "limit": 50,
+    "order_by_field": "name",
+    "include_relationships": true,
+    "exclude_fields": []
+  }
+}
+
+settings {
+  encodeUrl: true
+}

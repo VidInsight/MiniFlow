@@ -7,19 +7,29 @@ class FileUploadCRUD(BaseCRUD[FileUpload]):
     def __init__(self):
         super().__init__(FileUpload)
 
-    def _create_with_validation(self, session, name: str, file_path: str, file_size: int, **kwargs):
+    def _create(self, session, **kwargs):
+        # Extract required parameters
+        name = kwargs.get('name')
+        file_path = kwargs.get('file_path')
+        file_size = kwargs.get('file_size')
+
+        # Validate required fields
         if not name or not name.strip():
             raise ValidationError("File name cannot be empty", severity=ErrorSeverity.MEDIUM)
 
         if not file_path or not file_path.strip():
             raise ValidationError("File path cannot be empty", severity=ErrorSeverity.MEDIUM)
 
-        if file_size < 0:
-            raise ValidationError("File size cannot be negative", severity=ErrorSeverity.MEDIUM)
+        if file_size is None or file_size < 0:
+            raise ValidationError("File size cannot be negative or None", severity=ErrorSeverity.MEDIUM)
 
-        name = name.strip().upper()
-        existing_record = self._filter(session, filters={"name": name})
+        # Normalize name and check for duplicates
+        normalized_name = name.strip().upper()
+        existing_record = self._filter(session, filters={"name": normalized_name})
         if existing_record:
-            raise ValidationError(f"File by '{name}' already exists", severity=ErrorSeverity.MEDIUM)
+            raise ValidationError(f"File '{normalized_name}' already exists", severity=ErrorSeverity.MEDIUM)
 
-        return self._create(session, name=name, file_path=file_path, file_size=file_size, **kwargs)
+        # Update kwargs with normalized name
+        kwargs['name'] = normalized_name
+
+        return super()._create(session, **kwargs)

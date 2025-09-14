@@ -137,6 +137,18 @@ class BaseOrchestrator:
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
+    def delete(self, session, record_id: str) -> Dict[str, Any]:
+        """Generic delete method using the orchestrator's primary CRUD. 
+        Override this method in child orchestrators for custom cascade logic."""
+        crud = self._get_primary_crud()
+        try:
+            result = crud._delete(session, record_id)
+            return self._serialize_single_result(result)
+        except Exception as e:
+            context = self._create_error_context("delete", record_id=record_id)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
     def filter(self, session, filters: Dict[str, Any], skip: int = 0, limit: int = 100, order_by_field: str = None, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         """Generic filter method using the orchestrator's primary CRUD."""
         crud = self._get_primary_crud()

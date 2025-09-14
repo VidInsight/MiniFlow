@@ -16,22 +16,33 @@ class EdgeOrchestrator(BaseOrchestrator):
         return self.edge_crud
 
     @with_session
-    def create(self, session: Session, workflow_id: str, from_node_id: str, to_node_id: str, **kwargs) -> Dict[str, Any]:
+    def create(self, session: Session, **kwargs) -> Dict[str, Any]:
+        # Safe key extraction
+        workflow_id = kwargs.get("workflow_id")
+        from_node_id = kwargs.get("from_node_id")
+        to_node_id = kwargs.get("to_node_id")
+        
         try:
             # Check if edge already exists for this combination
-            existing = self.edge_crud._filter(
-                session,
-                {"workflow_id": workflow_id, "from_node_id": from_node_id, "to_node_id": to_node_id}
-            )
+            existing = self.edge_crud._filter(session, filters={
+                "workflow_id": workflow_id,
+                "from_node_id": from_node_id,
+                "to_node_id": to_node_id
+            })
 
             if existing:
                 # Return existing record instead of creating duplicate
                 return self._serialize_single_result(existing[0])
 
-            result = self.edge_crud._create_with_validation(session, workflow_id, from_node_id, to_node_id, **kwargs)
+            # Use standard CRUD create (no positional args)
+            result = self.edge_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
-            context = self._create_error_context("create", workflow_id=workflow_id, from_node_id=from_node_id, to_node_id=to_node_id)
+            # Safe context creation
+            context = self._create_error_context("create", 
+                workflow_id=workflow_id or "unknown",
+                from_node_id=from_node_id or "unknown", 
+                to_node_id=to_node_id or "unknown")
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
@@ -40,7 +51,7 @@ class EdgeOrchestrator(BaseOrchestrator):
             self._handle_not_found("Edge", record_id, "update")
 
         try:
-            result = self.edge_crud._update_with_validation(session, record_id, **kwargs)
+            result = self.edge_crud._update(session, record_id, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
             context = self._create_error_context("update", record_id=record_id)
@@ -68,6 +79,8 @@ class EdgeOrchestrator(BaseOrchestrator):
     @with_session
     def get_edges_by_workflow(self, session: Session, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         """Get all edges for a specific workflow."""
+        if not workflow_id:
+            return []
         try:
             results = self.edge_crud._filter(session, filters={"workflow_id": workflow_id})
             return self._serialize_multiple_results(results, include_relationships, exclude_fields)
@@ -78,6 +91,8 @@ class EdgeOrchestrator(BaseOrchestrator):
     @with_session
     def get_edges_by_node(self, session: Session, node_id: str, direction: str = 'both', include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         """Get edges connected to a specific node."""
+        if not node_id:
+            return []
         try:
             if direction == 'outgoing':
                 results = self.edge_crud._filter(session, filters={"from_node_id": node_id})
@@ -92,3 +107,11 @@ class EdgeOrchestrator(BaseOrchestrator):
         except Exception as e:
             context = self._create_error_context("get_edges_by_node", node_id=node_id, direction=direction)
             raise OrchestrationError(str(e), context=context) from e
+    @with_session
+    def get_total_count(self, session: Session) -> int:
+        """Get total count of all edges."""
+        try:
+            return self.edge_crud._count(session) or 0
+        except Exception as e:
+            context = self._create_error_context("get_total_count")
+            raise OrchestrationError(f"Failed to get total edge count: {str(e)}", context=context) from e

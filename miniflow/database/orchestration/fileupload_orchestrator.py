@@ -16,30 +16,12 @@ class FileUploadOrchestrator(BaseOrchestrator):
         return self.fileupload_crud
 
     @with_session
-    def create(self, session: Session, name: str, file_path: str, file_size: int, **kwargs) -> Dict[str, Any]:
+    def create(self, session: Session, **kwargs) -> Dict[str, Any]:
         try:
-            result = self.fileupload_crud._create_with_validation(session, name, file_path, file_size, **kwargs)
+            result = self.fileupload_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
-            context = self._create_error_context("create", name=name)
-            raise OrchestrationError(str(e), context=context) from e
-
-    @with_session
-    def get_by_name(self, session: Session, name: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
-        try:
-            results = self.fileupload_crud._filter(session, filters={"name": name})
-            return self._serialize_single_result(results[0] if results else None, include_relationships, exclude_fields)
-        except Exception as e:
-            context = self._create_error_context("get_by_name", name=name)
-            raise OrchestrationError(str(e), context=context) from e
-
-    @with_session
-    def get_by_path(self, session: Session, file_path: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
-        try:
-            results = self.fileupload_crud._filter(session, filters={"file_path": file_path})
-            return self._serialize_single_result(results[0] if results else None, include_relationships, exclude_fields)
-        except Exception as e:
-            context = self._create_error_context("get_by_path", file_path=file_path)
+            context = self._create_error_context("create", name=kwargs.get("name"))
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
@@ -60,3 +42,25 @@ class FileUploadOrchestrator(BaseOrchestrator):
     # - count() -> int
     # - filter(filters, skip, limit, order_by_field) -> List[Dict[str, Any]]
     # - count_with_filter(filters) -> int
+
+    @with_session
+    def get_by_name(self, session: Session, name: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        try:
+            results = self.fileupload_crud._filter(session, filters={"name": name})
+            if not results:
+                return None
+            return self._serialize_single_result(results[0], include_relationships, exclude_fields)
+        except Exception as e:
+            context = self._create_error_context("get_by_name", name=name)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def get_by_path(self, session: Session, file_path: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        try:
+            results = self.fileupload_crud._filter(session, filters={"file_path": file_path})
+            if not results:
+                return None
+            return self._serialize_single_result(results[0], include_relationships, exclude_fields)
+        except Exception as e:
+            context = self._create_error_context("get_by_path", file_path=file_path)
+            raise OrchestrationError(str(e), context=context) from e

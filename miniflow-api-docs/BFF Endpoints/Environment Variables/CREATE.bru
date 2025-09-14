@@ -1,0 +1,25 @@
+meta {
+  name: CREATE
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/envar/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "NEW_API_KEY",
+    "value": "sk-new-key-12345",
+    "description": "Yeni API anahtarı",
+    "variable_type": "SECRET",
+    "scope": "GLOBAL"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,42 @@
+meta {
+  name: UPDATE
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/scripts/{{SCRIPT_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "content": "print('Updated content from Bruno! Just kidding')",
+    "description": "Updated script description via Bruno",
+    "version": "1.1.0",
+    "author": "Bruno Test User",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "input_param": {"type": "string"}
+      }
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "result": {"type": "string"}
+      }
+    },
+    "test_input_params": {
+      "input_param": "test_value"
+    },
+    "test_output_params": {
+      "result": "success"
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}

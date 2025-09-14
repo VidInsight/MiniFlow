@@ -1,0 +1,28 @@
+meta {
+  name: FILTER
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/files/filter
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "filters": {
+      "filename": "report.csv"
+    },
+    "skip": 0,
+    "limit": 100,
+    "order_by_field": "uploaded_at",
+    "include_relationships": false,
+    "exclude_fields": []
+  }
+}
+
+settings {
+  encodeUrl: true
+}

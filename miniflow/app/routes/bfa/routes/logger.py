@@ -9,74 +9,71 @@ from miniflow.app.routes.bfa.schemas.logger import (
     LogFileInfo
 )
 from miniflow.core.exceptions import MiniflowException
+from miniflow.app.utils.decorators import with_api_error_handling
 
 router = APIRouter()
 logger_ops = LoggerActions()
 
 
 @router.get("/", response_model=APIResponse[List[Dict[str, Any]]])
+@with_api_error_handling(operation="list_loggers")
 async def list_loggers(request: Request, auth_data: dict = Depends(verify_bfa_access)):
     """Sistemdeki tüm logger'ları listele"""
-    try:
-        loggers = logger_ops.get_available_loggers()
-
-        correlation_id = await get_current_correlation_id(request)
-        return APIResponse(
-            data=loggers,
-            message=f"Found {len(loggers)} loggers",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    loggers = logger_ops.get_available_loggers()
+    correlation_id = await get_current_correlation_id(request)
+    return APIResponse(
+        data=loggers,
+        message=f"Found {len(loggers)} loggers",
+        correlation_id=correlation_id
+    )
 
 
 @router.get("/{logger_name}/config")
+@with_api_error_handling
 async def get_logger_config(logger_name: str, request: Request, auth_data: dict = Depends(verify_bfa_access)):
     """Logger konfigürasyonunu getir"""
-    try:
-        config = logger_ops.get_logger_config(logger_name)
-        correlation_id = await get_current_correlation_id(request)
-
-        return APIResponse(
-            data=config,
-            message=f"Logger config for {logger_name}",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    config = logger_ops.get_logger_config(logger_name)
+    correlation_id = await get_current_correlation_id(request)
+    return APIResponse(
+        data=config,
+        message=f"Logger config for {logger_name}",
+        correlation_id=correlation_id
+    )
 
 
 @router.put("/{logger_name}/config")
-async def update_logger_config(logger_name: str, config_update: LoggerConfigUpdate, correlation_id: str = Depends(get_current_correlation_id), auth_data: dict = Depends(verify_bfa_access)):
+@with_api_error_handling(operation="update_logger_config")
+async def update_logger_config(
+    logger_name: str, 
+    config_update: LoggerConfigUpdate, 
+    correlation_id: str = Depends(get_current_correlation_id), 
+    auth_data: dict = Depends(verify_bfa_access)
+):
     """Logger konfigürasyonunu güncelle"""
-    try:
-        # Sadece None olmayan değerleri güncelle
-        updates = {k: v for k, v in config_update.dict().items() if v is not None}
-
-        updated_config = logger_ops.update_logger_config(logger_name, updates)
-
-        return APIResponse(
-            data=updated_config,
-            message=f"Logger {logger_name} config updated",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    # Sadece None olmayan değerleri güncelle
+    updates = {k: v for k, v in config_update.dict().items() if v is not None}
+    updated_config = logger_ops.update_logger_config(logger_name, updates)
+    return APIResponse(
+        data=updated_config,
+        message=f"Logger {logger_name} config updated",
+        correlation_id=correlation_id
+    )
 
 
 @router.get("/{logger_name}", response_model=APIResponse[LogFileInfo])
-async def get_log_file_info(logger_name: str, correlation_id: str = Depends(get_current_correlation_id), auth_data: dict = Depends(verify_bfa_access)):
+@with_api_error_handling
+async def get_log_file_info(
+    logger_name: str, 
+    correlation_id: str = Depends(get_current_correlation_id), 
+    auth_data: dict = Depends(verify_bfa_access)
+):
     """Log dosyası bilgilerini getir"""
-    try:
-        file_info = logger_ops.get_log_file_info(logger_name)
-
-        return APIResponse(
-            data=file_info,
-            message=f"Log file info for {logger_name}",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    file_info = logger_ops.get_log_file_info(logger_name)
+    return APIResponse(
+        data=file_info,
+        message=f"Log file info for {logger_name}",
+        correlation_id=correlation_id
+    )
 
 
 # ❌ STREAM ENDPOINT REMOVED
@@ -88,17 +85,18 @@ async def get_log_file_info(logger_name: str, correlation_id: str = Depends(get_
 
 
 @router.delete("/{logger_name}/file")
-async def clear_log_file(logger_name: str, correlation_id: str = Depends(get_current_correlation_id), auth_data: dict = Depends(verify_bfa_access)):
+@with_api_error_handling(operation="clear_log_file")
+async def clear_log_file(
+    logger_name: str, 
+    correlation_id: str = Depends(get_current_correlation_id), 
+    auth_data: dict = Depends(verify_bfa_access)
+):
     """Log dosyasını temizle"""
-    try:
-        result = logger_ops.clear_log_file(logger_name)
-
-        return APIResponse(
-            data=result,
-            message=f"Log file cleared for {logger_name}",
-            correlation_id=correlation_id
-        )
-    except MiniflowException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    result = logger_ops.clear_log_file(logger_name)
+    return APIResponse(
+        data=result,
+        message=f"Log file cleared for {logger_name}",
+        correlation_id=correlation_id
+    )
 
 

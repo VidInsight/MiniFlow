@@ -1,0 +1,31 @@
+meta {
+  name: COUNT
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/envar/count
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+
+docs {
+  �� URL: GET {{BASE_URL}}/api/bff/envar/count
+  📝 Açıklama: Environment variable'ların toplam sayısını döndürür.
+  �� Request Body: Yok (GET request)
+  📤 Response:
+  {
+    "success": true,
+    "data": {
+      "count": 4
+    },
+    "message": "Count retrieved",
+    "correlation_id": "abc123-def456-ghi789",
+    "timestamp": "2025-09-14T08:30:00.000Z"
+  }
+}
