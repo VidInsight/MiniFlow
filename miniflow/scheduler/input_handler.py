@@ -280,7 +280,14 @@ class InputHandler(MonitorableComponent):
                 self.logger.error(f"Invalid task structure: {task}")
                 return None
             
+            # Validate script path is present (critical for engine execution)
+            script_path = task.get('script_path')
+            if not script_path:
+                self.logger.error(f"Task {task.get('id')} missing script_path - cannot execute")
+                return None
+            
             self.logger.debug(f"Creating payload for task: {task.get('id')}, node: {task.get('node_name')}")
+            self.logger.debug(f"Script path: {script_path}")
             self.logger.debug(f"Task node_params: {task.get('node_params')}")
             
             # Process node_params to build execution context using SchedulerOrchestrator
@@ -307,11 +314,12 @@ class InputHandler(MonitorableComponent):
                 'correlation_id': task.get('correlation_id'),
                 'node_name': task['node_name'],
                 'script_name': task.get('script_name'),
-                'script_path': task.get('script_path'),
+                'script_path': script_path,  # Ensure script_path is not None
                 'context': processed_context,
                 'priority': task.get('priority', 0),
                 'max_retries': 3,  # Default from node configuration
-                'timeout_seconds': 300  # Default from node configuration
+                'timeout_seconds': 300,  # Default from node configuration
+                'process_type': 'iob'  # Default to IO-bound for script execution
             }
             
             self.logger.debug(f"Created payload: {payload}")
@@ -338,20 +346,26 @@ class InputHandler(MonitorableComponent):
                 raise ValueError("Execution Engine not available for task submission")
 
             self.logger.info(f"Sending {len(prepared_payloads)} tasks to execution engine")
+            
+            # Log payload details for debugging
+            for i, payload in enumerate(prepared_payloads):
+                self.logger.debug(f"Payload {i+1}: execution_id={payload.get('execution_id')}, "
+                                f"node_id={payload.get('node_id')}, script_path={payload.get('script_path')}")
+            
             success = self.exec_engine.put_items_bulk(prepared_payloads)
             
             if success:
                 self.metrics['successful_tasks'] += len(prepared_payloads)
-                self.logger.debug(f"Successfully sent {len(prepared_payloads)} tasks to engine")
+                self.logger.info(f"Successfully sent {len(prepared_payloads)} tasks to engine")
                 
                 # Remove completed tasks from execution_input table
                 self._remove_sent_tasks(task_ids)
             else:
-                self.logger.error("Failed to send tasks to execution engine")
+                self.logger.error("Failed to send tasks to execution engine - engine rejected payloads")
                 self.metrics['failed_tasks'] += len(prepared_payloads)
                 
         except Exception as e:
-            self.logger.error(f"Error sending tasks to engine: {str(e)}")
+            self.logger.error(f"Error sending tasks to engine: {str(e)}", exc_info=True)
             self.metrics['failed_tasks'] += len(prepared_payloads)
 
     def _remove_sent_tasks(self, task_ids: List[str]) -> None:

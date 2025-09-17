@@ -79,7 +79,7 @@ class TypeController:
 
         command_data = {
             "command": "start_thread",
-            "data": "miniflow.parallelism_engine.process.modules.python_runner.python_runner",
+            "data": "miniflow.engine.process.modules.python_runner.python_runner",
             "args": (item,),
             "kwargs": {}
         }

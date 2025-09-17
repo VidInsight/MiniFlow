@@ -170,10 +170,36 @@ class ScheduledTriggerHandler(BaseTriggerHandler):
             self.logger.info(f"Executing scheduled trigger for workflow {self.workflow_id}",
                            extra={"scheduled_time": current_time.isoformat(), "trigger_id": self.trigger_id})
             
-            await self.execute_workflow(source_data)
+            execution_result = await self.execute_workflow(source_data)
+            
+            if execution_result:
+                self.logger.info(f"Scheduled trigger executed successfully",
+                               extra={
+                                   "trigger_id": self.trigger_id,
+                                   "execution_id": execution_result.get('id'),
+                                   "workflow_id": self.workflow_id
+                               })
+            else:
+                self.logger.warning(f"Scheduled trigger execution returned no result",
+                                  extra={"trigger_id": self.trigger_id, "workflow_id": self.workflow_id})
             
         except Exception as e:
-            self.logger.error(f"Scheduled trigger execution failed: {str(e)}")
+            self.logger.error(f"Scheduled trigger execution failed: {str(e)}", 
+                            extra={
+                                "trigger_id": self.trigger_id,
+                                "workflow_id": self.workflow_id,
+                                "error_type": type(e).__name__
+                            }, exc_info=True)
+            
+            # Try to mark trigger as error status for monitoring
+            try:
+                if hasattr(self.orchestrator, 'trigger_orchestrator'):
+                    self.orchestrator.trigger_orchestrator.mark_execution_error(
+                        self.trigger_id, str(e)
+                    )
+            except Exception as mark_error:
+                self.logger.warning(f"Failed to mark trigger error status: {str(mark_error)}")
+            
             # Don't re-raise - we want the scheduler to continue running
     
     def get_schedule_info(self) -> Dict[str, Any]:
