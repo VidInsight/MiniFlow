@@ -6,24 +6,10 @@ from miniflow.core.logger import get_logger
 
 
 class BaseTriggerHandler(ABC):
-    """
-    Base class for all trigger handlers
-    
-    Provides common functionality and interface for all trigger types.
-    Each trigger type (MANUAL, WEBHOOK, SCHEDULED) must implement this interface.
-    """
-    
     def __init__(self, trigger_data: Dict[str, Any], database_orchestrator):
-        """
-        Initialize base trigger handler
-        
-        Args:
-            trigger_data: Complete trigger record from database
-            database_orchestrator: DatabaseOrchestrator instance for database operations
-        """
         self.trigger_data = trigger_data
         self.orchestrator = database_orchestrator
-        self.logger = get_logger("database_orchestration")
+        self.logger = get_logger("miniflow_trigger")
         self.is_running = False
         
         # Extract common trigger info

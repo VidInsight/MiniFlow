@@ -4,30 +4,15 @@ from ..base_handler import BaseTriggerHandler
 
 
 class ManualTriggerHandler(BaseTriggerHandler):
-    """
-    Handler for manual triggers
-    
-    Manual triggers don't run automatically - they're executed on-demand
-    through API calls or programmatic invocation.
-    """
-    
     def __init__(self, trigger_data: Dict[str, Any], database_orchestrator):
         super().__init__(trigger_data, database_orchestrator)
     
     async def start(self) -> bool:
-        """
-        Start manual trigger handler
-        
-        Manual triggers don't need to 'start' anything - they're always ready.
-        """
         self.is_running = True
         self.logger.info(f"Manual trigger '{self.trigger_name}' is ready for execution")
         return True
     
     async def stop(self) -> bool:
-        """
-        Stop manual trigger handler
-        """
         self.is_running = False
         self.logger.info(f"Manual trigger '{self.trigger_name}' stopped")
         return True
@@ -36,19 +21,6 @@ class ManualTriggerHandler(BaseTriggerHandler):
         return "MANUAL"
     
     async def trigger_manually(self, manual_input_data: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Execute workflow manually with optional input data
-        
-        Args:
-            manual_input_data: Optional data provided by the user/API
-            
-        Returns:
-            Dict containing execution information
-            
-        Raises:
-            RuntimeError: If trigger is not active
-            Exception: If workflow execution fails
-        """
         if not self.is_running:
             raise RuntimeError("Manual trigger is not active")
         

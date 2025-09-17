@@ -20,23 +20,15 @@ class WorkflowOperations(BaseBFFOperations[WorkflowOrchestrator]):
     
     def _simplify_workflow_item(self, item: Dict[str, Any], exclude_fields: Optional[List[str]] = None) -> Dict[str, Any]:
         """Workflow verisini sade format'a çevir - Auto-reload test"""
-        base_fields = {
-            'id': item.get('id'),
-            'created_at': item.get('created_at'),
-            'updated_at': item.get('updated_at'),
-            'name': item.get('name'),
-            'description': item.get('description'),
-            'priority': item.get('priority'),
-            'status': item.get('status'),
-            'status_message': item.get('status_message')
-        }
+        # Tüm alanları kopyala (ilişkiler dahil)
+        result = item.copy()
         
         # Exclude fields'i uygula
         if exclude_fields:
             for field in exclude_fields:
-                base_fields.pop(field, None)
+                result.pop(field, None)
                 
-        return base_fields
+        return result
 
     # CREATE
     async def create_workflow_record(self, request: WorkflowCreateRequest) -> Dict[str, Any]:

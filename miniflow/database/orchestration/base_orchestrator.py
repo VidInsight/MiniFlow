@@ -111,7 +111,7 @@ class BaseOrchestrator:
         """Generic get by ID method using the orchestrator's primary CRUD."""
         crud = self._get_primary_crud()
         try:
-            result = crud._get_by_id(session, record_id)
+            result = crud._get_by_id(session, record_id, include_relationships)
             return self._serialize_single_result(result, include_relationships, exclude_fields)
         except Exception as e:
             context = self._create_error_context("get_by_id", record_id=record_id)

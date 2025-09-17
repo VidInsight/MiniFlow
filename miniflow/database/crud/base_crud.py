@@ -1,6 +1,6 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 from sqlalchemy import select, func, delete, update
-from sqlalchemy.orm import DeclarativeMeta, Session
+from sqlalchemy.orm import DeclarativeMeta, Session, joinedload, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
@@ -71,14 +71,25 @@ class BaseCRUD(Generic[ModelType]):
             self.logger.error(f"Unexpected error creating {self.model_name}: {str(e)}")
             raise DatabaseQueryError(f"Object Creation Error (via BaseCRUD _create): {self.model_name}", context=context, severity=ErrorSeverity.CRITICAL, source_error=e)
 
-    def _get_by_id(self, session: Session, record_id: str) -> Optional[ModelType]:
-        """Find single record by primary key ID."""
+    def _get_by_id(self, session: Session, record_id: str, include_relationships: bool = False) -> Optional[ModelType]:
+        """Find single record by primary key ID with optional relationship loading."""
 
         # Find Action
         try:
-            self.logger.debug(f"Finding {self.model_name} by ID: {record_id}")
+            self.logger.debug(f"Finding {self.model_name} by ID: {record_id} (include_relationships={include_relationships})")
 
-            result = session.get(self.model, record_id)
+            if include_relationships:
+                # Load with relationships using selectinload
+                query = select(self.model).where(self.model.id == record_id)
+                
+                # Add selectinload for all relationships
+                for relationship_name in self.model.__mapper__.relationships.keys():
+                    query = query.options(selectinload(getattr(self.model, relationship_name)))
+                
+                result = session.execute(query).scalar_one_or_none()
+            else:
+                result = session.get(self.model, record_id)
+            
             if result:
                 self.logger.debug(f"Found {self.model_name} with ID: {record_id}")
                 return result
