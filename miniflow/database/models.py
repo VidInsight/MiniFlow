@@ -83,6 +83,18 @@ class VariableType(str, enum.Enum):
     URL = "URL"
 
 
+class TriggerType(str, enum.Enum):
+    MANUAL = "MANUAL"           # Manuel tetikleme
+    SCHEDULED = "SCHEDULED"     # Zaman bazlı (cron/interval)
+    WEBHOOK = "WEBHOOK"         # HTTP webhook endpoint
+
+
+class TriggerStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"           # Çalışıyor
+    INACTIVE = "INACTIVE"       # Durdurulmuş
+    ERROR = "ERROR"             # Hata durumunda
+
+
 Base = declarative_base()
 
 
@@ -304,6 +316,7 @@ class Workflow(BaseModel):
     nodes = relationship("Node", back_populates="workflow")
     edges = relationship("Edge", back_populates="workflow")
     executions = relationship("Execution", back_populates="workflow")
+    triggers = relationship("Trigger", back_populates="workflow", cascade="all, delete-orphan")
 
 
 class Node(BaseModel):
@@ -415,6 +428,7 @@ class ExecutionInput(BaseModel):
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True, index=True)
     correlation_id = Column(String(50), nullable=True)
 
     priority = Column(Integer, default=0, nullable=False)
@@ -431,6 +445,7 @@ class ExecutionInput(BaseModel):
     execution = relationship("Execution", back_populates="execution_inputs")
     workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_inputs")
+    trigger = relationship("Trigger", back_populates="execution_inputs")
 
 
 class ExecutionOutput(BaseModel):
@@ -451,3 +466,78 @@ class ExecutionOutput(BaseModel):
     execution = relationship("Execution", back_populates="execution_outputs")
     workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_outputs")
+
+
+class Trigger(BaseModel):
+    __prefix__ = "TR"
+    __tablename__ = 'triggers'
+
+    # ==========================================
+    # TEMEL BİLGİLER
+    # ==========================================
+    
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Hangi workflow'u tetikleyecek - CASCADE: workflow silinince trigger'lar da silinir
+    
+    name = Column(String(100), nullable=False)
+    # Trigger'ın kullanıcı dostu ismi
+    
+    description = Column(Text, nullable=True)
+    # Trigger'ın ne yaptığının açıklaması (isteğe bağlı)
+    
+    trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
+    # MANUAL, SCHEDULED, WEBHOOK - sık filtrelenecek
+    
+    status = Column(Enum(TriggerStatus), default=TriggerStatus.ACTIVE, nullable=False, index=True)
+    # ACTIVE, INACTIVE, ERROR - aktif trigger'lar sık sorgulanacak
+    
+    # ==========================================
+    # KONFIGÜRASYON
+    # ==========================================
+    
+    config = Column(JSON, default=dict, nullable=False)
+    # Trigger tipine göre özel ayarlar:
+    # MANUAL: {}
+    # SCHEDULED: {"cron": "0 9 * * *", "timezone": "UTC"}
+    # WEBHOOK: {"webhook_id": "payment-hook", "secret": "..."}
+    
+    input_mapping = Column(JSON, default=dict, nullable=True)
+    # Basit key-value mapping:
+    # {"order_id": "id", "customer_email": "email", "priority": "high"}
+    # null ise raw data direkt geçer
+    
+    # ==========================================
+    # CONSTRAINTS
+    # ==========================================
+    
+    __table_args__ = (
+        # Aynı workflow'da aynı isimde trigger olamaz
+        UniqueConstraint('workflow_id', 'name', name='_workflow_trigger_name_unique'),
+    )
+    
+    # ==========================================
+    # RELATIONSHIPS
+    # ==========================================
+    
+    workflow = relationship("Workflow", back_populates="triggers")
+    execution_inputs = relationship("ExecutionInput", back_populates="trigger")
+    
+    # ==========================================
+    # COMPUTED PROPERTIES
+    # ==========================================
+    
+    @property
+    def webhook_endpoint(self) -> str:
+        """Webhook endpoint URL'i (webhook trigger'lar için)"""
+        if self.trigger_type != TriggerType.WEBHOOK:
+            return None
+        
+        webhook_id = self.config.get('webhook_id')
+        if webhook_id:
+            return f"/api/bff/triggers/webhook/{webhook_id}"
+        return None
+    
+    @property
+    def is_active(self) -> bool:
+        """Trigger aktif mi?"""
+        return self.status == TriggerStatus.ACTIVE

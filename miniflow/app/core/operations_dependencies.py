@@ -70,3 +70,18 @@ def get_file_operations(request: Request):
     orchestrator = get_database_orchestrator(request)
     from miniflow.app.routes.bff.bff_file_routes.operations import FileUploadOperations
     return FileUploadOperations(orchestrator.fileupload_orchestrator)
+
+
+def get_trigger_operations(request: Request):
+    """Get Trigger Operations dependency"""
+    orchestrator = get_database_orchestrator(request)
+    # Get trigger manager from app state
+    trigger_manager = getattr(request.app.state, 'trigger_manager', None)
+    if not trigger_manager:
+        # Create a temporary trigger manager for testing
+        from miniflow.triggers import TriggerManager
+        trigger_manager = TriggerManager(orchestrator)
+        # Note: Handlers will be loaded on-demand in trigger_manual method
+    
+    from miniflow.app.routes.bff.bff_trigger_routes.operations import TriggerOperations
+    return TriggerOperations(orchestrator.trigger_orchestrator, trigger_manager)

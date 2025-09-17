@@ -29,7 +29,7 @@ MINIFLOW_API_LOGGER_CONFIG = {
 }
 
 DATABASE_ORCHESTRATION_LOGGER_CONFIG = {
-    "level": "INFO",
+    "level": "DEBUG",
     "filename": "logs/database_orchestration.log",
     "max_size_mb": 150,
     "max_files": 7,
@@ -69,8 +69,8 @@ EXECUTION_ENGINE_LOGGER_CONFIG = {
     "filename": "logs/execution_engine.log",
     "max_size_mb": 100,
     "max_files": 8,
-    "console_output": False,  # Console'a hiç basma
-    "console_level": "CRITICAL",
+    "console_output": True,  # Console'a payload'ları yazdır
+    "console_level": "INFO",
     "file_level": "INFO",
     "console_formatter": "plain",
     "file_formatter": "json"

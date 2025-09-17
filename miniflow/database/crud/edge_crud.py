@@ -37,3 +37,6 @@ class EdgeCRUD(BaseCRUD[Edge]):
             raise ValidationError("Edge already exists between these nodes", severity=ErrorSeverity.MEDIUM)
             
         return super()._create(session, **kwargs)
+
+    def _get_by_node_id(self, session: Session, node_id: str) -> Optional[Edge]:
+        return self._filter(session, {'from_node_id': node_id})

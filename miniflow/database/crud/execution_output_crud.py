@@ -10,3 +10,6 @@ from miniflow.database.crud.base_crud import BaseCRUD
 class ExecutionOutputCRUD(BaseCRUD[ExecutionOutput]):
     def __init__(self):
         super().__init__(ExecutionOutput)
+
+    def _get_inputs_by_execution(self, session: Session, execution_id: str) -> List[ExecutionOutput]:
+        return self._filter(session, {'execution_id': execution_id})

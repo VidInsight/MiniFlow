@@ -21,11 +21,50 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("MiniFlow API starting up...")
 
+    # Initialize and start TriggerManager
+    trigger_manager = None
+    try:
+        if hasattr(app.state, 'database_engine') and app.state.database_engine:
+            from miniflow.database import DatabaseOrchestrator
+            from miniflow.triggers import TriggerManager
+            
+            # Create database orchestrator
+            orchestrator = DatabaseOrchestrator(app.state.database_engine)
+            
+            # Create and start trigger manager
+            trigger_manager = TriggerManager(orchestrator)
+            success = await trigger_manager.start()
+            
+            if success:
+                # Store trigger manager in app state for dependency injection
+                app.state.trigger_manager = trigger_manager
+                if logger:
+                    logger.info("TriggerManager started successfully")
+            else:
+                if logger:
+                    logger.error("Failed to start TriggerManager")
+        else:
+            if logger:
+                logger.warning("Database engine not available, TriggerManager not started")
+    except Exception as e:
+        if logger:
+            logger.error(f"Error initializing TriggerManager: {str(e)}")
+
     yield
 
     # Shutdown
     if logger:
         logger.info("MiniFlow API shutting down...")
+    
+    # Stop TriggerManager
+    if trigger_manager:
+        try:
+            await trigger_manager.stop()
+            if logger:
+                logger.info("TriggerManager stopped successfully")
+        except Exception as e:
+            if logger:
+                logger.error(f"Error stopping TriggerManager: {str(e)}")
 
 def create_app(database_engine=None) -> FastAPI:
     """FastAPI uygulaması factory"""

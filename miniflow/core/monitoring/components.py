@@ -100,7 +100,7 @@ class MonitorableComponent(ABC):
         pass
 
     @abstractmethod
-    def set_component_config(self) -> Dict[str, Any]:
+    def set_component_config(self, config) -> Dict[str, Any]:
         """Set component configuration"""
         pass
 

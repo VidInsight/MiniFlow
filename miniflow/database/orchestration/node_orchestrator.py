@@ -77,11 +77,17 @@ class NodeOrchestrator(BaseOrchestrator):
     def get_by_workflow(self, session: Session, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         """Get all nodes for a specific workflow."""
         if not workflow_id:
+            self.logger.warning("get_by_workflow called with empty workflow_id")
             return []
         try:
+            self.logger.info(f"Getting nodes for workflow_id: {workflow_id}")
             results = self.node_crud._filter(session, filters={"workflow_id": workflow_id})
-            return self._serialize_multiple_results(results, include_relationships, exclude_fields)
+            self.logger.info(f"Found {len(results)} nodes for workflow {workflow_id}")
+            serialized = self._serialize_multiple_results(results, include_relationships, exclude_fields)
+            self.logger.info(f"Serialized {len(serialized)} nodes")
+            return serialized
         except Exception as e:
+            self.logger.error(f"Error in get_by_workflow: {str(e)}", exc_info=True)
             context = self._create_error_context("get_nodes_by_workflow", workflow_id=workflow_id)
             raise OrchestrationError(str(e), context=context) from e
     @with_session

@@ -14,6 +14,7 @@ from ..crud import EdgeCRUD
 from ..crud import ExecutionCRUD
 from ..crud import ExecutionInputCRUD
 from ..crud import ExecutionOutputCRUD
+from ..crud import TriggerCRUD
 
 
 def with_session(func):
@@ -66,6 +67,7 @@ class BaseOrchestrator:
         self.execution_crud = ExecutionCRUD()
         self.execution_input_crud = ExecutionInputCRUD()
         self.execution_output_crud = ExecutionOutputCRUD()
+        self.trigger_crud = TriggerCRUD()
         
         self.logger.info("BaseOrchestrator initialized")
 

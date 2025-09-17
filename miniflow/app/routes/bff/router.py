@@ -15,6 +15,7 @@ from miniflow.app.routes.bff.bff_file_routes.routes import router as fileupload_
 from miniflow.app.routes.bff.bff_execution_routes.routes import router as execution_router
 from miniflow.app.routes.bff.bff_execution_input_routes.routes import router as execution_input_router
 from miniflow.app.routes.bff.bff_execution_output_routes.routes import router as execution_output_router
+from miniflow.app.routes.bff.bff_trigger_routes.routes import router as trigger_router
 # TODO: Dashboard routes to be created later
 # from miniflow.app.routes.bff.dashboard.routes import router as dashboard_router
 # from miniflow.app.routes.bff.routes.credential_routes import router as credential_router  # Not implemented yet
@@ -83,6 +84,13 @@ bff_router.include_router(
     execution_output_router,
     prefix="/execution-outputs",  # Execution Outputs prefix
     tags=["BFF - Execution Outputs"]
+)
+
+# Trigger routes - triggers endpoints
+bff_router.include_router(
+    trigger_router,
+    prefix="/triggers",  # Triggers prefix
+    tags=["BFF - Triggers"]
 )
 
 # TODO: Dashboard routes to be created later

@@ -7,6 +7,7 @@ from .edge_crud import EdgeCRUD
 from .execution_crud import ExecutionCRUD
 from .execution_input_crud import ExecutionInputCRUD
 from .execution_output_crud import ExecutionOutputCRUD
+from .trigger_crud import TriggerCRUD
 
 __all__ = [
     'EnvironmentVariableCRUD',
@@ -18,4 +19,5 @@ __all__ = [
     'ExecutionCRUD',
     'ExecutionInputCRUD',
     'ExecutionOutputCRUD',
+    'TriggerCRUD',
 ]
