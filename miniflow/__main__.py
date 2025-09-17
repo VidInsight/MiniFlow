@@ -22,7 +22,7 @@ from miniflow.database import DatabaseOrchestrator
 from miniflow.database import Base
 
 # Engine imports
-from miniflow.engine import MockExecutionEngine
+from miniflow.engine import EngineManager
 
 # Handler imports
 from miniflow.scheduler.input_handler import InputHandler, InputHandlerConfig
@@ -221,11 +221,7 @@ class MiniflowCore:
 
             # MockExecutionEngine instance oluştur
             if self.execution_engine is None:
-                self.execution_engine = MockExecutionEngine(
-                    processing_delay=1.0,  # 1 second processing delay
-                    success_rate=0.95,     # 95% success rate
-                    max_queue_size=1000
-                )
+                self.execution_engine = EngineManager()
             
             self.execution_engine.start()
             self.execution_engine_started = True
