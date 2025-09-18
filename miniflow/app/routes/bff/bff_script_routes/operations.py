@@ -124,7 +124,11 @@ class ScriptOperations(BaseBFFOperations[ScriptOrchestrator]):
                 'content': request.content,
                 'description': request.description,
                 'version': request.version,
-                'author': request.author
+                'author': request.author,
+                'input_schema': request.input_schema,
+                'output_schema': request.output_schema,
+                'test_input_params': request.test_input_params,
+                'test_output_params': request.test_output_params
             }
             
             # Step 1: Create database record first
