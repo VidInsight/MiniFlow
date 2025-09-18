@@ -223,7 +223,10 @@ class MiniflowCore:
             if self.execution_engine is None:
                 self.execution_engine = EngineManager()
             
-            self.execution_engine.start()
+            engine_started = self.execution_engine.start()
+            if not engine_started:
+                raise Exception("EngineManager.start() returned False - check execution engine logs for details")
+            
             self.execution_engine_started = True
 
             # Execution engine başlangıç logları

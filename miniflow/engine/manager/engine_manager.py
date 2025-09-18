@@ -39,13 +39,19 @@ class EngineManager:
                 self.logger.info(f"Engine Manager starting on {system_info} with {cpu_count} CPUs, Unix mode: {is_unix}")
                 print(f"[ENGINE MANAGER] System: {system_info}, CPUs: {cpu_count}, Unix mode: {is_unix}")
                 
+                print(f"[ENGINE MANAGER] Creating ProcessController...")
                 self.process_controller = ProcessController(output_queue=self.output_queue, input_queue=self.input_queue,
                                                             os=is_unix,
                                                             iob_task_limit=self.iob_task_limit, cb_task_limit=self.cb_task_limit)
+                print(f"[ENGINE MANAGER] ProcessController created, starting...")
                 self.process_controller.start()
+                print(f"[ENGINE MANAGER] ProcessController started")
 
+                print(f"[ENGINE MANAGER] Creating QueueController...")
                 self.queue_controller = QueueController(self.input_queue, self.process_controller)
+                print(f"[ENGINE MANAGER] QueueController created, starting...")
                 self.queue_controller.start()
+                print(f"[ENGINE MANAGER] QueueController started")
 
                 self.started = True
                 self.logger.info("Execution Engine started successfully")
@@ -55,6 +61,7 @@ class EngineManager:
                 return False
 
         except Exception as e:
+            print(f"[ENGINE MANAGER] EXCEPTION during start: {str(e)}")
             self.logger.error(f"Failed to start Execution Engine: {str(e)}")
             self.started = False
             return False
