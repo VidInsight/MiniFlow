@@ -32,26 +32,38 @@ class ProcessController:
 
     def create_thread(self, item):
         if not self._check_retry(item):
-            if item.get("process_type") == "cb":
+            process_type = item.get("process_type")
+            print(f"[PROCESS CONTROLLER] Item process_type: {process_type}")
+            
+            if process_type == "cb":
+                print("[PROCESS CONTROLLER] Using CPU-Bound controller")
                 if self.cb_controller.create_thread(item):
+                    print("[PROCESS CONTROLLER] CPU-Bound task created successfully")
                     return True
-
                 else:
+                    print("[PROCESS CONTROLLER] CPU-Bound controller busy, requeueing")
                     self.input_queue.put(item)
                     return False
 
-            elif item.get("process_type") == "iob":
+            elif process_type == "iob":
+                print("[PROCESS CONTROLLER] Using IO-Bound controller")
                 if self.iob_controller.create_thread(item):
+                    print("[PROCESS CONTROLLER] IO-Bound task created successfully")
                     return True
-
                 else:
+                    print("[PROCESS CONTROLLER] IO-Bound controller busy, requeueing")
                     self.input_queue.put(item)
                     return False
 
             else:
+                print(f"[PROCESS CONTROLLER] Unknown process_type: {process_type}, failing task")
+                item["error_message"] = f"Unknown process_type: {process_type}"
+                item["status"] = "FAILED"
+                self.output_queue.put(item)
                 return False
 
         else:
+            print("[PROCESS CONTROLLER] Retry limit exceeded")
             item["error_message"] = "Retry Limit Exceeded"
             item["status"] = "FAILED"
             self.output_queue.put(item)

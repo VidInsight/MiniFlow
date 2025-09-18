@@ -72,11 +72,14 @@ class TypeController:
         return selected_process
 
     def create_thread(self, item: json):
+        print(f"[TYPE CONTROLLER {self.controller_type}] Looking for available process")
         process = self._get_next_process()
 
         if process is None:
+            print(f"[TYPE CONTROLLER {self.controller_type}] No available process found")
             return False
 
+        print(f"[TYPE CONTROLLER {self.controller_type}] Selected process {process['pid']} with {process['thread_count']} threads")
         command_data = {
             "command": "start_thread",
             "data": "miniflow.engine.process.modules.python_runner.python_runner",
@@ -84,6 +87,7 @@ class TypeController:
             "kwargs": {}
         }
         process.get("cmd_pipe").send(command_data)
+        print(f"[TYPE CONTROLLER {self.controller_type}] Command sent to process {process['pid']}")
         return True
 
     def shutdown(self):
