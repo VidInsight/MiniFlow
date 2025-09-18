@@ -28,9 +28,10 @@ class NodeOrchestrator(BaseOrchestrator):
                     if script and script.input_schema:
                         # Set params directly to input_schema
                         kwargs['input_params'] = script.input_schema
-                        kwargs['input_params'].update({'value': None})
+                        for key in kwargs['input_params']:
+                            kwargs['input_params'][key].update({'value': None})
                         kwargs['output_params'] = script.output_schema
-                        
+
                         self.logger.info(f"Set node params to input_schema from script {script_id}")
                     else:
                         self.logger.warning(f"Script {script_id} not found or has no input_schema")
