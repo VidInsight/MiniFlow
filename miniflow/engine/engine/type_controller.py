@@ -149,12 +149,13 @@ class TypeController:
         try:
             ps_process = psutil.Process(pid)
             ps_process.nice(priority)
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority set successfully for PID {pid}: {priority}")
             return True
         except (psutil.AccessDenied, PermissionError) as e:
-            print(f"[QueueWatcher] Priority ayarlanamadı (normal): {e}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority access denied for PID {pid} (normal): {e}")
             return False
         except Exception as e:
-            print(f"[QueueWatcher] Priority ayarlama hatası: {e}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority setting error for PID {pid}: {e}")
             return False
 
     def _nt_process_classes(self):

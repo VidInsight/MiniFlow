@@ -4,6 +4,7 @@ from ..queue_module import BaseQueue
 import threading
 import time
 import importlib
+import os
 
 
 class BaseProcess:
@@ -24,7 +25,13 @@ class BaseProcess:
             self.threads = [t for t in self.threads if t.thread.is_alive()]
 
     def start(self):
-        self.process.start()
+        try:
+            print(f"[BASE PROCESS] Starting process...")
+            self.process.start()
+            print(f"[BASE PROCESS] Process started successfully: PID={self.process.pid}")
+        except Exception as e:
+            print(f"[BASE PROCESS] FAILED to start process: {str(e)}")
+            raise
 
     def run_process(self, cmd_pipe, health_pipe, output_queue):
         """
@@ -32,10 +39,15 @@ class BaseProcess:
         pipe: Bu process'e özel child_conn
         output_queue: Sonuçları QueueWatcher'a göndermek için paylaşılan kuyruk
         """
-        # Process içinde lock ve thread listesi oluştur
-        self.threads = []
-        self.lock = threading.Lock()
-        self.shutdown_event = threading.Event()
+        try:
+            print(f"[BASE PROCESS] Process {os.getpid()} started successfully")
+            # Process içinde lock ve thread listesi oluştur
+            self.threads = []
+            self.lock = threading.Lock()
+            self.shutdown_event = threading.Event()
+        except Exception as e:
+            print(f"[BASE PROCESS] Error in run_process initialization: {str(e)}")
+            return
 
         def health_check():
             while not self.shutdown_event.is_set():

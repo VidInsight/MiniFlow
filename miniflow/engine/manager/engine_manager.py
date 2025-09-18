@@ -6,7 +6,8 @@ import atexit
 import signal
 import sys
 import platform
-
+import multiprocessing
+import time
 
 class EngineManager:
     def __init__(self, queue_limit: int = 20, iob_task_limit: int = 20, cb_task_limit: int = 1):
@@ -30,8 +31,16 @@ class EngineManager:
     def start(self):
         try:
             if not self.started:
+                # Log system information
+                system_info = platform.system()
+                cpu_count = multiprocessing.cpu_count()
+                is_unix = False if system_info == "Windows" else True
+                
+                self.logger.info(f"Engine Manager starting on {system_info} with {cpu_count} CPUs, Unix mode: {is_unix}")
+                print(f"[ENGINE MANAGER] System: {system_info}, CPUs: {cpu_count}, Unix mode: {is_unix}")
+                
                 self.process_controller = ProcessController(output_queue=self.output_queue, input_queue=self.input_queue,
-                                                            os=False if platform.system() == "Windows" else True,
+                                                            os=is_unix,
                                                             iob_task_limit=self.iob_task_limit, cb_task_limit=self.cb_task_limit)
                 self.process_controller.start()
 
