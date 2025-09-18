@@ -11,12 +11,15 @@ import time
 
 class EngineManager:
     def __init__(self, queue_limit: int = 20, iob_task_limit: int = 20, cb_task_limit: int = 1):
+        print(f"[ENGINE MANAGER] Constructor starting...")
         self.input_queue = BaseQueue(maxsize=queue_limit)
         self.output_queue = BaseQueue()
         self.process_controller = None
         self.queue_controller = None
         self.started = False
+        print(f"[ENGINE MANAGER] Basic attributes set, getting logger...")
         self.logger = get_logger("execution_engine")
+        print(f"[ENGINE MANAGER] Logger obtained")
 
         self.iob_task_limit = iob_task_limit
         self.cb_task_limit = cb_task_limit
@@ -24,17 +27,31 @@ class EngineManager:
 
         self.logger.info("Starting Execution Engine")
 
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        print(f"[ENGINE MANAGER] Setting up signal handlers...")
+        try:
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            print(f"[ENGINE MANAGER] Signal handlers set successfully")
+        except Exception as e:
+            print(f"[ENGINE MANAGER] Signal handler setup failed: {str(e)}")
+        
+        print(f"[ENGINE MANAGER] Registering shutdown handler...")
         atexit.register(self.shutdown)
+        print(f"[ENGINE MANAGER] Constructor completed successfully")
 
     def start(self):
+        print(f"[ENGINE MANAGER] start() method called")
         try:
+            print(f"[ENGINE MANAGER] Checking if already started: {self.started}")
             if not self.started:
+                print(f"[ENGINE MANAGER] Getting system information...")
                 # Log system information
                 system_info = platform.system()
+                print(f"[ENGINE MANAGER] System: {system_info}")
                 cpu_count = multiprocessing.cpu_count()
+                print(f"[ENGINE MANAGER] CPU count: {cpu_count}")
                 is_unix = False if system_info == "Windows" else True
+                print(f"[ENGINE MANAGER] Unix mode: {is_unix}")
                 
                 self.logger.info(f"Engine Manager starting on {system_info} with {cpu_count} CPUs, Unix mode: {is_unix}")
                 print(f"[ENGINE MANAGER] System: {system_info}, CPUs: {cpu_count}, Unix mode: {is_unix}")
