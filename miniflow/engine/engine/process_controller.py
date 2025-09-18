@@ -13,10 +13,17 @@ class ProcessController:
         self.os = os
         self.cb_task_limit = cb_task_limit
         self.iob_task_limit = iob_task_limit
+        
+        print(f"[PROCESS CONTROLLER] Initializing with max_process_count={self.max_process_count}")
+        print(f"[PROCESS CONTROLLER] CPU-Bound: 1 process, task_limit={cb_task_limit}")
+        print(f"[PROCESS CONTROLLER] IO-Bound: {self.max_process_count - 1} processes, task_limit={iob_task_limit}")
+        
         self.cb_controller = TypeController(output_queue=self.output_queue, process_count=1, task_limit=cb_task_limit,
                                             os=self.os, controller_type="CPU-Bound")
         self.iob_controller = TypeController(output_queue=self.output_queue, process_count=self.max_process_count - 1,
                                              task_limit=iob_task_limit, os=self.os, controller_type="IO-Bound")
+        
+        print("[PROCESS CONTROLLER] Type controllers initialized")
 
     def start(self):
         if self.started:

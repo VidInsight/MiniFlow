@@ -32,21 +32,27 @@ class TypeController:
         self._start_thread_counter()
 
     def _start_processes(self, count):
-        for _ in range(count):
-            cmd_parent_conn, cmd_child_conn = Pipe()
-            health_parent_conn, health_child_conn = Pipe()
-            process = BaseProcess(cmd_child_conn, health_child_conn, self.output_queue)
-            process.start()
-            self._set_process_priority(process.process.pid, self.priority)
-            print(f"[QUEUEWATCHER] Starting process {process.process.pid}")
-            self.active_processes.append({
-                'name': f'{self.controller_type}-{_}',
-                'pid': process.process.pid,
-                'process': process,
-                'cmd_pipe': cmd_parent_conn,
-                'health_pipe': health_parent_conn,
-                'thread_count': 0
-            })
+        print(f"[TYPE CONTROLLER {self.controller_type}] Starting {count} processes")
+        for i in range(count):
+            try:
+                cmd_parent_conn, cmd_child_conn = Pipe()
+                health_parent_conn, health_child_conn = Pipe()
+                process = BaseProcess(cmd_child_conn, health_child_conn, self.output_queue)
+                process.start()
+                self._set_process_priority(process.process.pid, self.priority)
+                print(f"[TYPE CONTROLLER {self.controller_type}] Started process {i}: pid={process.process.pid}")
+                self.active_processes.append({
+                    'name': f'{self.controller_type}-{i}',
+                    'pid': process.process.pid,
+                    'process': process,
+                    'cmd_pipe': cmd_parent_conn,
+                    'health_pipe': health_parent_conn,
+                    'thread_count': 0
+                })
+            except Exception as e:
+                print(f"[TYPE CONTROLLER {self.controller_type}] FAILED to start process {i}: {str(e)}")
+        
+        print(f"[TYPE CONTROLLER {self.controller_type}] Successfully started {len(self.active_processes)} processes")
 
     def new_process(self):
         self._start_processes(1)
@@ -60,14 +66,30 @@ class TypeController:
         return ps_info_list
 
     def _get_next_process(self):
+        print(f"[TYPE CONTROLLER {self.controller_type}] Active processes: {len(self.active_processes)}")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Task limit: {self.task_limit}")
+        
         if not self.active_processes:
+            print(f"[TYPE CONTROLLER {self.controller_type}] No active processes available")
             return None
+
+        # Log all process states for debugging
+        for i, p in enumerate(self.active_processes):
+            print(f"[TYPE CONTROLLER {self.controller_type}] Process {i}: pid={p['pid']}, thread_count={p['thread_count']}, limit={self.task_limit}")
+
+        available_processes = [p for p in self.active_processes if p['thread_count'] < self.task_limit]
+        print(f"[TYPE CONTROLLER {self.controller_type}] Available processes: {len(available_processes)}")
 
         selected_process = min(
             (p for p in self.active_processes if p['thread_count'] < self.task_limit),
             key=lambda p: p['thread_count'],
             default=None
         )
+
+        if selected_process:
+            print(f"[TYPE CONTROLLER {self.controller_type}] Selected process: pid={selected_process['pid']}, thread_count={selected_process['thread_count']}")
+        else:
+            print(f"[TYPE CONTROLLER {self.controller_type}] No process available under task limit")
 
         return selected_process
 
