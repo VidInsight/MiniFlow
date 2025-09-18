@@ -320,7 +320,7 @@ class InputHandler(MonitorableComponent):
                 'priority': task.get('priority', 0),
                 'max_retries': 3,  # Default from node configuration
                 'timeout_seconds': 300,  # Default from node configuration
-                'process_type': 'iob'  # Default to IO-bound for script execution
+                'process_type': 'cb'  # Default to IO-bound for script execution
             }
             
             self.logger.debug(f"Created payload: {payload}")
