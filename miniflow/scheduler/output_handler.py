@@ -233,7 +233,13 @@ class OutputHandler(MonitorableComponent):
         
         for result in results:
             try:
-                self.logger.debug(f"Processing result for execution {result.get('execution_id', 'UNKNOWN')}")
+                self.logger.info(f"Processing result for execution {result.get('execution_id', 'UNKNOWN')}")
+                self.logger.debug(f"Result data: {result}")
+                
+                # Log result details
+                self.logger.info(f"Result: execution_id={result.get('execution_id')}, "
+                               f"node_id={result.get('node_id')}, status={result.get('status')}")
+                self.logger.debug(f"Result data content: {result.get('result_data', {})}")
                 
                 # Validate result structure
                 if not self._validate_result_structure(result):

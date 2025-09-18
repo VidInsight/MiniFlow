@@ -1,0 +1,34 @@
+meta {
+  name: UPDATE NODE 1
+  type: http
+  seq: 8
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/nodes/{{NODE_1_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "input_params": {
+      "num1": {
+        "value": 10,
+        "type": "int",
+        "format": "integer",
+        "description": "First number to add"
+      },
+      "num2": {
+        "value": 5,
+        "type": "int",
+        "format": "integer",
+        "description": "Second number to add"
+      }
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}

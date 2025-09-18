@@ -1,0 +1,30 @@
+meta {
+  name: CREATE TRIGGER
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/triggers/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "workflow_id": "{{WORKFLOW_ID}}",
+    "name": "bruno_test_trigger",
+    "trigger_type": "MANUAL",
+    "description": "Bruno test trigger: 10+5=15, 15+3=18, 18+7=25",
+    "config": {
+      "allow_parallel": false,
+      "description": "Bruno sequential addition test",
+      "test_scenario": "bruno_parameter_format"
+    },
+    "status": "ACTIVE"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

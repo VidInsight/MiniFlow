@@ -67,12 +67,20 @@ class EngineManager:
             return False
 
         self.logger.info(f"Received {len(items)} tasks from InputHandler")
+        
+        # Log task details for debugging
+        for i, item in enumerate(items):
+            self.logger.debug(f"Task {i+1}: execution_id={item.get('execution_id')}, "
+                            f"node_id={item.get('node_id')}, script_path={item.get('script_path')}")
+            self.logger.debug(f"Task {i+1} context: {item.get('context', {})}")
 
         if not items:
             return True
 
         # Use optimized batch put method
-        return self.input_queue.put_batch(items)
+        result = self.input_queue.put_batch(items)
+        self.logger.info(f"Batch put result: {result}")
+        return result
 
     def shutdown(self):
         """Graceful shutdown"""
@@ -97,16 +105,25 @@ class EngineManager:
         Performance optimized version for batch result processing
         """
         if not self.started:
+            self.logger.warning("Engine not started, returning empty results")
             return []
 
         items = []
-        for _ in range(max_items):
+        for i in range(max_items):
             try:
                 item = self.output_queue.get_with_timeout(timeout=timeout)
                 if item is None:
                     break
                 items.append(item)
-            except:
+                self.logger.debug(f"Retrieved result {i+1}: execution_id={item.get('execution_id')}, "
+                                f"status={item.get('status')}")
+            except Exception as e:
+                self.logger.debug(f"Exception getting item {i+1}: {str(e)}")
                 break
 
+        if items:
+            self.logger.info(f"Retrieved {len(items)} execution results from output queue")
+        else:
+            self.logger.debug("No execution results available in output queue")
+            
         return items

@@ -1,0 +1,19 @@
+meta {
+  name: GET WORKFLOW
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{BASE_URL}}/api/bff/workflows/{{WORKFLOW_ID}}?include_relationships=true
+  body: none
+  auth: inherit
+}
+
+params:query {
+  include_relationships: true
+}
+
+settings {
+  encodeUrl: true
+}

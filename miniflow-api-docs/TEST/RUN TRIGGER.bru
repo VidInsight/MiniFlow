@@ -1,0 +1,26 @@
+meta {
+  name: RUN TRIGGER
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/triggers/{{TRIGGER_ID}}/execute
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "input_data": {
+      "test_execution": true,
+      "description": "Bruno test execution: 10+5=15, 15+3=18, 18+7=25",
+      "test_version": "bruno_v1",
+      "created_by": "Bruno API Client"
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}

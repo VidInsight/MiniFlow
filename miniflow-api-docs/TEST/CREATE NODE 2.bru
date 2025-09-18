@@ -1,0 +1,27 @@
+meta {
+  name: CREATE NODE 2
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/nodes/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "workflow_id": "{{WORKFLOW_ID}}",
+    "name": "bruno_node_2",
+    "description": "Second node: adds result from node_1 + 3",
+    "script_id": "{{SCRIPT_ID}}",
+    "max_retries": 3,
+    "timeout_seconds": 300,
+    "priority": 10
+  }
+}
+
+settings {
+  encodeUrl: true
+}

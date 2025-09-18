@@ -1,0 +1,83 @@
+meta {
+  name: CREATE SCRIPT
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/scripts/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "bruno_addition_script",
+    "category": "math",
+    "subcategory": "basic",
+    "description": "Addition script created via Bruno for testing new parameter format",
+    "version": "1.0.0",
+    "author": "Bruno Test User",
+    "file_extension": ".py",
+    "content": "def module():\n    return AdditionModule()\n\nclass AdditionModule:\n    def run(self, context):\n        # Get parameters from context\n        num1 = context.get(\"num1\", 0)\n        num2 = context.get(\"num2\", 0)\n        \n        # Perform addition\n        result = num1 + num2\n        \n        # Return result in expected format\n        return {\n            \"sum\": result,\n            \"operation\": f\"{num1} + {num2} = {result}\",\n            \"timestamp\": \"$(date +%Y-%m-%d_%H:%M:%S)\"\n        }",
+    "input_schema": {
+      "num1": {
+        "type": "int",
+        "widget": "input",
+        "placeholder": "Bir sayı giriniz",
+        "format": "integer",
+        "description": "First number to add",
+        "required": true,
+        "default": 0,
+        "validation": {
+          "min": -1000,
+          "max": 1000
+        }
+        
+      },
+      "num2": {
+        "type": "int", 
+        "widget": "input",
+        "placeholder": "Bir sayı giriniz",
+        "format": "integer",
+        "description": "Second number to add",
+        "required": true,
+        "default": 0,
+        "validation": {
+          "min": -1000,
+          "max": 1000
+        }
+      }
+    },
+    "output_schema": {
+      "sum": {
+        "type": "int",
+        "format": "integer", 
+        "description": "Addition result"
+      },
+      "operation": {
+        "type": "string",
+        "format": "text",
+        "description": "Operation description"
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "datetime",
+        "description": "Execution timestamp"
+      }
+    },
+    "test_input_params": {
+      "num1": {"value": 10},
+      "num2": {"value": 5}
+    },
+    "test_output_params": {
+      "sum": 15,
+      "operation": "10 + 5 = 15",
+      "timestamp": "2025-01-01_12:00:00"
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,0 +1,23 @@
+meta {
+  name: CREATE WORKFLOW
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/workflows/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "bruno_test_workflow_2",
+    "description": "Bruno test workflow: 10+5=15, 15+3=18, 18+7=25",
+    "priority": 20
+  }
+}
+
+settings {
+  encodeUrl: true
+}

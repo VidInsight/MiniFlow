@@ -1,0 +1,24 @@
+meta {
+  name: CREATE EDGE 1
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{BASE_URL}}/api/bff/edges/
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "workflow_id": "{{WORKFLOW_ID}}",
+    "from_node_id": "{{NODE_1_ID}}",
+    "to_node_id": "{{NODE_2_ID}}",
+    "condition_type": "SUCCESS"
+  }
+}
+
+settings {
+  encodeUrl: true
+}

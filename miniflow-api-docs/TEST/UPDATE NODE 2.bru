@@ -1,0 +1,36 @@
+meta {
+  name: UPDATE NODE 2
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{BASE_URL}}/api/bff/nodes/{{NODE_2_ID}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "input_params": {
+      "num1": {
+        "value": "{n{ND-386C9FF9993841829.sum}}",
+        "type": "number",
+        "format": "integer",
+        "description": "Result from previous node (10+5=15)",
+        "required": true
+      },
+      "num2": {
+        "value": 3,
+        "type": "number",
+        "format": "integer", 
+        "description": "Second number to add",
+        "required": true
+      }
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+}
