@@ -9,7 +9,6 @@ class NodeCreateRequest(BaseModel):
     description: Optional[str] = Field(None, description="Description of the node")
     script_id: str = Field(None, description="ID of the script to execute")
     meta_data: Optional[Dict[str, Any]] = Field(None, description="Metadata parameters")
-    params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Node parameters")
     max_retries: Optional[int] = Field(3, description="Maximum retry attempts")
     timeout_seconds: Optional[int] = Field(300, description="Timeout in seconds")
 
@@ -20,7 +19,6 @@ class NodeCreateRequest(BaseModel):
             'description': self.description,
             'script_id': self.script_id,
             'meta_data': self.meta_data,
-            'params': self.params,
             'max_retries': self.max_retries,
             'timeout_seconds': self.timeout_seconds
         }

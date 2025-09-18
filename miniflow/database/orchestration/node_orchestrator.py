@@ -19,6 +19,23 @@ class NodeOrchestrator(BaseOrchestrator):
     @with_session
     def create(self, session: Session, **kwargs) -> Dict[str, Any]:
         try:
+            # If script_id is provided, fetch script and inject input_schema into params
+            script_id = kwargs.get('script_id')
+            if script_id:
+                try:
+                    # Get script using script_crud
+                    script = self.script_crud._get_by_id(session, script_id)
+                    if script and script.input_schema:
+                        # Set params directly to input_schema
+                        kwargs['params'] = script.input_schema
+                        
+                        self.logger.info(f"Set node params to input_schema from script {script_id}")
+                    else:
+                        self.logger.warning(f"Script {script_id} not found or has no input_schema")
+                except Exception as script_error:
+                    # Log warning but don't fail the node creation
+                    self.logger.warning(f"Failed to fetch script {script_id} for input_schema injection: {script_error}")
+
             result = self.node_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
@@ -34,6 +51,7 @@ class NodeOrchestrator(BaseOrchestrator):
             self._handle_not_found("Node", record_id, "update")
 
         try:
+
             result = self.node_crud._update(session, record_id, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:

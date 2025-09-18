@@ -203,11 +203,6 @@ class EnvironmentVariable(BaseModel):
     variable_type = Column(Enum(VariableType), default=VariableType.STRING, nullable=False, index=True)
     scope = Column(Enum(VariableScope), default=VariableScope.GLOBAL, nullable=False, index=True)
 
-    # Metadata
-    last_accessed_at = Column(DateTime, nullable=True, index=True)
-    access_count = Column(Integer, default=0, nullable=False)
-    last_modified_by = Column(String(20), nullable=True)
-
 
 class FileUpload(BaseModel):
     __prefix__ = "FU"

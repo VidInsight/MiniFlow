@@ -405,7 +405,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.debug(f"Looking for variable '{variable_name}' in result_data")
                     
             if variable_name in result_data:
-                resolved_value = result_data[variable_name]
+                resolved_value = result_data[variable_name]['value']
                 self.logger.debug(f"Resolved {placeholder} to: {resolved_value}")
                 return resolved_value
             else:
