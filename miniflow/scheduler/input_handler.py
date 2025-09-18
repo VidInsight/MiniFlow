@@ -301,8 +301,9 @@ class InputHandler(MonitorableComponent):
                 self.logger.debug(f"Successfully called process_task_context, result: {processed_context}")
             except Exception as e:
                 self.logger.error(f"Exception in process_task_context for task {task.get('id')}: {str(e)}", exc_info=True)
-                # Fallback to original node_params if processing fails
-                processed_context = task.get('node_params', {})
+                # Fallback to original node_params with format handling
+                raw_node_params = task.get('node_params', {})
+                processed_context = self._extract_fallback_context(raw_node_params)
             
             self.logger.debug(f"Processed context: {processed_context}")
             
@@ -336,6 +337,44 @@ class InputHandler(MonitorableComponent):
         """Validate that task has required fields."""
         required_fields = ['execution_id', 'workflow_id', 'node_id', 'node_name']
         return all(field in task for field in required_fields)
+
+    def _extract_fallback_context(self, raw_node_params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract fallback context from node_params with format handling.
+        
+        Supports both formats:
+        - New format: {variable_name: {value: variable_value, ...}}
+        - Old format: {variable_name: variable_value}
+        
+        Returns flattened context: {variable_name: variable_value}
+        """
+        try:
+            if not isinstance(raw_node_params, dict):
+                self.logger.warning(f"raw_node_params is not a dict: {type(raw_node_params)}")
+                return {}
+                
+            fallback_context = {}
+            
+            for key, param_data in raw_node_params.items():
+                try:
+                    if isinstance(param_data, dict) and 'value' in param_data:
+                        # New format: {variable_name: {value: variable_value, ...}}
+                        fallback_context[key] = param_data['value']
+                        self.logger.debug(f"Fallback extracted new format - {key}: {param_data['value']}")
+                    else:
+                        # Old format: {variable_name: variable_value}
+                        fallback_context[key] = param_data
+                        self.logger.debug(f"Fallback extracted old format - {key}: {param_data}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to extract fallback for parameter '{key}': {str(e)}")
+                    fallback_context[key] = param_data
+                    
+            self.logger.debug(f"Fallback context extracted: {fallback_context}")
+            return fallback_context
+            
+        except Exception as e:
+            self.logger.error(f"Error in fallback context extraction: {str(e)}")
+            return {}
 
     
 

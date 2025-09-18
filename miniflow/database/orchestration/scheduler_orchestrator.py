@@ -269,11 +269,17 @@ class SchedulerOrchestrator(BaseOrchestrator):
         """
         Process node_params for a task to resolve dynamic parameters.
         
-        Placeholder formats:
+        Supports both formats:
+        - New format: {variable_name: {value: variable_value, type: ..., format: ...}}
+        - Old format: {variable_name: variable_value} (backward compatibility)
+        
+        Placeholder formats for values:
         - {n{node_id.variable_name}} -> ExecutionOutput lookup  
         - {e{variable_name}} -> EnvironmentVariable lookup
         - {t{trigger_id.variable_name}} -> Trigger data lookup
         - Static values -> returned as-is
+        
+        Returns flattened context for script execution: {variable_name: variable_value}
         """
         try:
             raw_node_params = task.get('node_params', {})
@@ -290,16 +296,32 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 
             processed_context = {}
             
-            for key, value in raw_node_params.items():
+            for key, param_data in raw_node_params.items():
                 try:
-                    self.logger.debug(f"Processing parameter '{key}' with value: {value}")
-                    processed_value = self._resolve_parameter_value(session, value, execution_id, workflow_id, trigger_id)
+                    self.logger.debug(f"Processing parameter '{key}' with data: {param_data}")
+                    
+                    # Extract value based on format
+                    if isinstance(param_data, dict) and 'value' in param_data:
+                        # New format: {variable_name: {value: variable_value, ...}}
+                        raw_value = param_data['value']
+                        self.logger.debug(f"New format detected - extracting value: {raw_value}")
+                    else:
+                        # Old format: {variable_name: variable_value} (backward compatibility)
+                        raw_value = param_data
+                        self.logger.debug(f"Old format detected - using direct value: {raw_value}")
+                    
+                    # Resolve parameter value (placeholders, etc.)
+                    processed_value = self._resolve_parameter_value(session, raw_value, execution_id, workflow_id, trigger_id)
                     processed_context[key] = processed_value
-                    self.logger.debug(f"Resolved '{key}': {value} -> {processed_value}")
+                    self.logger.debug(f"Resolved '{key}': {raw_value} -> {processed_value}")
+                    
                 except Exception as e:
                     self.logger.warning(f"Failed to process parameter '{key}': {str(e)}")
                     # Keep original value if processing fails
-                    processed_context[key] = value
+                    if isinstance(param_data, dict) and 'value' in param_data:
+                        processed_context[key] = param_data['value']
+                    else:
+                        processed_context[key] = param_data
                     
             self.logger.info(f"Processed context: {processed_context}")
             return processed_context
@@ -405,8 +427,16 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.debug(f"Looking for variable '{variable_name}' in result_data")
                     
             if variable_name in result_data:
-                resolved_value = result_data[variable_name]['value']
-                self.logger.debug(f"Resolved {placeholder} to: {resolved_value}")
+                # Handle both direct values and nested structures
+                value_data = result_data[variable_name]
+                if isinstance(value_data, dict) and 'value' in value_data:
+                    # New format: {variable_name: {value: actual_value, ...}}
+                    resolved_value = value_data['value']
+                    self.logger.debug(f"Resolved {placeholder} from new format to: {resolved_value}")
+                else:
+                    # Old format or direct value: {variable_name: actual_value}
+                    resolved_value = value_data
+                    self.logger.debug(f"Resolved {placeholder} from direct value to: {resolved_value}")
                 return resolved_value
             else:
                 self.logger.warning(f"Variable '{variable_name}' not found in node {node_id} output. Available keys: {list(result_data.keys())}")

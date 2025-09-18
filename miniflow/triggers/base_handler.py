@@ -273,7 +273,7 @@ class BaseTriggerHandler(ABC):
                         'node_name': node['name'],
                         'script_name': script_name,
                         'script_path': script_path,
-                        'node_params': node.get('params', {})
+                        'node_params': node.get('input_params', {})
                     }
                     
                     # Create execution input record
