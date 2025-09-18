@@ -29,7 +29,8 @@ class NodeUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, description="Name of the node")
     description: Optional[str] = Field(None, description="Description of the node")
     script_id: Optional[str] = Field(None, description="ID of the script to execute")
-    params: Optional[Dict[str, Any]] = Field(None, description="Node parameters")
+    input_params: Optional[Dict[str, Any]] = Field(None, description="Node parameters")
+    output_params: Optional[Dict[str, Any]] = Field(None, description="Node parameters")
     meta_data: Optional[Dict[str, Any]] = Field(None, description="Metadata parameters")
     max_retries: Optional[int] = Field(None, description="Maximum retry attempts")
     timeout_seconds: Optional[int] = Field(None, description="Timeout in seconds")
@@ -40,7 +41,8 @@ class NodeUpdateRequest(BaseModel):
             'description': self.description,
             'script_id': self.script_id,
             'meta_data': self.meta_data,
-            'params': self.params,
+            'input_params': self.input_params,
+            'output_params': self.output_params,
             'max_retries': self.max_retries,
             'timeout_seconds': self.timeout_seconds
         }

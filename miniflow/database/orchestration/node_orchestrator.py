@@ -27,7 +27,9 @@ class NodeOrchestrator(BaseOrchestrator):
                     script = self.script_crud._get_by_id(session, script_id)
                     if script and script.input_schema:
                         # Set params directly to input_schema
-                        kwargs['params'] = script.input_schema
+                        kwargs['input_params'] = script.input_schema
+                        kwargs['input_params'].update({'value': None})
+                        kwargs['output_params'] = script.output_schema
                         
                         self.logger.info(f"Set node params to input_schema from script {script_id}")
                     else:
@@ -51,7 +53,6 @@ class NodeOrchestrator(BaseOrchestrator):
             self._handle_not_found("Node", record_id, "update")
 
         try:
-
             result = self.node_crud._update(session, record_id, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:

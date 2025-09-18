@@ -323,7 +323,8 @@ class Node(BaseModel):
 
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    params = Column(JSON, nullable=True, default=dict)
+    input_params = Column(JSON, nullable=True, default=dict)
+    output_params = Column(JSON, nullable=True, default=dict)
     meta_data = Column(JSON, default=dict, nullable=True)
     max_retries = Column(Integer, default=3, nullable=False)
     timeout_seconds = Column(Integer, default=300, nullable=False)
