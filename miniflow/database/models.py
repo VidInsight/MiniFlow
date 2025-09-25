@@ -3,7 +3,7 @@ import enum
 from typing import Optional, List
 from datetime import datetime, timezone
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint
 
 
 class WorkflowStatus(str, enum.Enum):
@@ -121,7 +121,7 @@ class BaseModel(Base):
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(id={self.id})>"
 
-    def to_dict(self, include_relationships=False, exclude_fields=None) -> dict:
+    def to_dict(self, include_relationships=False, exclude_fields=None, include_properties=False) -> dict:
 
         result = {}
         exclude_fields = exclude_fields or []
@@ -151,6 +151,26 @@ class BaseModel(Base):
                 except Exception:
                     # Skip problematic relationships
                     continue
+
+        # Process @property attributes if requested
+        if include_properties:
+            # Get all properties defined on the class
+            for name in dir(self.__class__):
+                if name.startswith('_'):  # Skip private/protected methods
+                    continue
+                    
+                if name in exclude_fields:
+                    continue
+                
+                # Check if it's a property
+                attr = getattr(self.__class__, name, None)
+                if isinstance(attr, property):
+                    try:
+                        value = getattr(self, name)
+                        result[name] = self._serialize_value(value)
+                    except Exception:
+                        # Skip properties that can't be evaluated
+                        continue
 
         return result
 
@@ -280,34 +300,19 @@ class Workflow(BaseModel):
     status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False)
     status_message = Column(Text, nullable=True, default='Currently no error context is avaliable')
 
-    # Workflow Statistics
     total_executions = Column(Integer, default=0, nullable=False)
     successful_executions = Column(Integer, default=0, nullable=False)
     failed_executions = Column(Integer, default=0, nullable=False)
     cancelled_executions = Column(Integer, default=0, nullable=False)
+    
     avg_execution_duration = Column(Float, nullable=True)  # seconds
     min_execution_duration = Column(Float, nullable=True)  # seconds
     max_execution_duration = Column(Float, nullable=True)  # seconds
+   
     last_executed_at = Column(DateTime, nullable=True, index=True)
     last_successful_execution_at = Column(DateTime, nullable=True)
     last_failed_execution_at = Column(DateTime, nullable=True)
     
-    # Computed properties available as methods
-    @property
-    def success_rate(self) -> float:
-        """Calculate workflow success rate"""
-        if self.total_executions == 0:
-            return 0.0
-        return self.successful_executions / self.total_executions
-    
-    @property
-    def failure_rate(self) -> float:
-        """Calculate workflow failure rate"""
-        if self.total_executions == 0:
-            return 0.0
-        return self.failed_executions / self.total_executions
-
-    # Relationships
     nodes = relationship("Node", back_populates="workflow")
     edges = relationship("Edge", back_populates="workflow")
     executions = relationship("Execution", back_populates="workflow")
@@ -317,6 +322,9 @@ class Workflow(BaseModel):
 class Node(BaseModel):
     __prefix__ = "ND"
     __tablename__ = 'nodes'
+    __table_args__ = (
+        UniqueConstraint('workflow_id', 'name', name='_workflow_node_name_unique'),
+        )
 
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     script_id = Column(String(20), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
@@ -329,15 +337,12 @@ class Node(BaseModel):
     max_retries = Column(Integer, default=3, nullable=False)
     timeout_seconds = Column(Integer, default=300, nullable=False)
 
-    # Relationships
     workflow = relationship("Workflow", back_populates="nodes")
     script = relationship("Script", back_populates="nodes")
 
-    # Edge relationships
     outgoing_edges = relationship("Edge", foreign_keys="Edge.from_node_id", back_populates="from_node")
     incoming_edges = relationship("Edge", foreign_keys="Edge.to_node_id", back_populates="to_node")
 
-    # Execution relationships
     execution_inputs = relationship("ExecutionInput", back_populates="node")
     execution_outputs = relationship("ExecutionOutput", back_populates="node")
 
@@ -345,6 +350,10 @@ class Node(BaseModel):
 class Edge(BaseModel):
     __prefix__ = "ED"
     __tablename__ = 'edges'
+    __table_args__ = (
+        CheckConstraint('from_node_id != to_node_id', name='_edge_no_self_loop'),
+        UniqueConstraint('workflow_id', 'from_node_id', 'to_node_id', 'condition_type', name='_workflow_edge_unique'),
+    )
 
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     from_node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
@@ -352,7 +361,6 @@ class Edge(BaseModel):
 
     condition_type = Column(Enum(ConditionType), default=ConditionType.SUCCESS, nullable=False)
 
-    # Relationships
     workflow = relationship("Workflow", back_populates="edges")
     from_node = relationship("Node", foreign_keys=[from_node_id], back_populates="outgoing_edges")
     to_node = relationship("Node", foreign_keys=[to_node_id], back_populates="incoming_edges")
@@ -361,58 +369,24 @@ class Edge(BaseModel):
 class Execution(BaseModel):
     __prefix__ = "EX"
     __tablename__ = 'executions'
-
+    
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='CASCADE'), nullable=False)
+    correlation_id = Column(String(50), nullable=True)
 
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False)
-    pending_nodes = Column(Integer, default=0, nullable=False)
-    executed_nodes = Column(Integer, default=0, nullable=False)
-    results = Column(JSON, default=dict, nullable=False)
-    error_details = Column(JSON, default=dict, nullable=False)  # Detailed error information
     started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     ended_at = Column(DateTime, nullable=True)
-    
-    # Computed properties for execution analytics
-    @property
-    def duration_seconds(self) -> float:
-        """Calculate execution duration in seconds"""
-        if self.ended_at and self.started_at:
-            return (self.ended_at - self.started_at).total_seconds()
-        return 0.0
-    
-    @property
-    def is_completed(self) -> bool:
-        """Check if execution is in a completed state"""
-        return self.status in [ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED]
-    
-    @property
-    def is_successful(self) -> bool:
-        """Check if execution completed successfully"""
-        return self.status == ExecutionStatus.COMPLETED
-    
-    @property
-    def node_success_rate(self) -> float:
-        """Calculate success rate of nodes within this execution"""
-        total_attempted = self.executed_nodes
-        if total_attempted == 0:
-            return 0.0
-        return self.successful_nodes / total_attempted
-    
-    @property
-    def total_nodes(self) -> int:
-        """Total number of nodes in this execution"""
-        return self.pending_nodes + self.executed_nodes
-    
-    @property
-    def progress_percentage(self) -> float:
-        """Calculate execution progress as percentage"""
-        total = self.total_nodes
-        if total == 0:
-            return 0.0
-        return (self.executed_nodes / total) * 100.0
 
-    # Relationships
+    pending_nodes = Column(Integer, default=0, nullable=False)
+    running_nodes = Column(Integer, default=0, nullable=False)
+    executed_nodes = Column(Integer, default=0, nullable=False)
+
+    trigger_data = Column(JSON, default=dict, nullable=False)
+    results = Column(JSON, default=dict, nullable=False)
+
     workflow = relationship("Workflow", back_populates="executions")
+    trigger = relationship("Trigger", back_populates="executions")
     execution_inputs = relationship("ExecutionInput", back_populates="execution", cascade="all, delete-orphan")
     execution_outputs = relationship("ExecutionOutput", back_populates="execution", cascade="all, delete-orphan")
 
@@ -420,24 +394,24 @@ class Execution(BaseModel):
 class ExecutionInput(BaseModel):
     __prefix__ = "EI"
     __tablename__ = 'execution_inputs'
+    __table_args__ = (
+        UniqueConstraint('execution_id', 'node_id', name='_execution_input_unique'),
+    )
 
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
     trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True, index=True)
-    correlation_id = Column(String(50), nullable=True)
 
-    priority = Column(Integer, default=0, nullable=False)
     dependency_count = Column(Integer, default=0, nullable=False)
+    priority = Column(Integer, default=0, nullable=False)
     wait_factor = Column(Integer, default=0, nullable=False)
 
-    # Denormalized fields for performance (scheduler optimization)
     node_name = Column(String(100), nullable=False)
+    node_params = Column(JSON, default=dict, nullable=False)
     script_name = Column(String(100), nullable=True)
     script_path = Column(Text, nullable=True)
-    node_params = Column(JSON, default=dict, nullable=False)
 
-    # Relationships
     execution = relationship("Execution", back_populates="execution_inputs")
     workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_inputs")
@@ -447,18 +421,17 @@ class ExecutionInput(BaseModel):
 class ExecutionOutput(BaseModel):
     __prefix__ = "EO"
     __tablename__ = 'execution_outputs'
+    __table_args__ = (
+        UniqueConstraint('execution_id', 'node_id', name='_execution_output_unique'),
+    )
 
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
     node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
-    correlation_id = Column(String(50), nullable=True)
 
     status = Column(Enum(ExecutionOutputStatus), nullable=False)
     result_data = Column(JSON, nullable=True, default=dict)
-    started_at = Column(DateTime, nullable=True)
-    ended_at = Column(DateTime, nullable=True)
 
-    # Relationships
     execution = relationship("Execution", back_populates="execution_outputs")
     workflow = relationship("Workflow")
     node = relationship("Node", back_populates="execution_outputs")
@@ -467,73 +440,16 @@ class ExecutionOutput(BaseModel):
 class Trigger(BaseModel):
     __prefix__ = "TR"
     __tablename__ = 'triggers'
-
-    # ==========================================
-    # TEMEL BİLGİLER
-    # ==========================================
-    
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
-    # Hangi workflow'u tetikleyecek - CASCADE: workflow silinince trigger'lar da silinir
-    
-    name = Column(String(100), nullable=False)
-    # Trigger'ın kullanıcı dostu ismi
-    
-    description = Column(Text, nullable=True)
-    # Trigger'ın ne yaptığının açıklaması (isteğe bağlı)
-    
+    __table_args__ = (UniqueConstraint('workflow_id', 'name', name='_workflow_trigger_name_unique'),)
+     
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)    
+    name = Column(String(100), nullable=False)    
+    description = Column(Text, nullable=True)    
     trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
-    # MANUAL, SCHEDULED, WEBHOOK - sık filtrelenecek
-    
-    status = Column(Enum(TriggerStatus), default=TriggerStatus.ACTIVE, nullable=False, index=True)
-    # ACTIVE, INACTIVE, ERROR - aktif trigger'lar sık sorgulanacak
-    
-    # ==========================================
-    # KONFIGÜRASYON
-    # ==========================================
-    
+    status = Column(Enum(TriggerStatus), default=TriggerStatus.ACTIVE, nullable=False, index=True)    
     config = Column(JSON, default=dict, nullable=False)
-    # Trigger tipine göre özel ayarlar:
-    # MANUAL: {}
-    # SCHEDULED: {"cron": "0 9 * * *", "timezone": "UTC"}
-    # WEBHOOK: {"webhook_id": "payment-hook", "secret": "..."}
-    
     input_mapping = Column(JSON, default=dict, nullable=True)
-    # Basit key-value mapping:
-    # {"order_id": "id", "customer_email": "email", "priority": "high"}
-    # null ise raw data direkt geçer
-    
-    # ==========================================
-    # CONSTRAINTS
-    # ==========================================
-    
-    __table_args__ = (
-        # Aynı workflow'da aynı isimde trigger olamaz
-        UniqueConstraint('workflow_id', 'name', name='_workflow_trigger_name_unique'),
-    )
-    
-    # ==========================================
-    # RELATIONSHIPS
-    # ==========================================
     
     workflow = relationship("Workflow", back_populates="triggers")
+    executions = relationship("Execution", back_populates="trigger")
     execution_inputs = relationship("ExecutionInput", back_populates="trigger")
-    
-    # ==========================================
-    # COMPUTED PROPERTIES
-    # ==========================================
-    
-    @property
-    def webhook_endpoint(self) -> str:
-        """Webhook endpoint URL'i (webhook trigger'lar için)"""
-        if self.trigger_type != TriggerType.WEBHOOK:
-            return None
-        
-        webhook_id = self.config.get('webhook_id')
-        if webhook_id:
-            return f"/api/bff/triggers/webhook/{webhook_id}"
-        return None
-    
-    @property
-    def is_active(self) -> bool:
-        """Trigger aktif mi?"""
-        return self.status == TriggerStatus.ACTIVE
