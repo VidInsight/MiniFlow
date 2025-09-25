@@ -7,36 +7,24 @@ from miniflow.core.exceptions import OrchestrationError, ValidationError, ErrorS
 
 
 class TriggerOrchestrator(BaseOrchestrator):
-    """Trigger orchestrator for trigger management operations with full CRUD support."""
 
     def __init__(self, database_engine):
         super().__init__(database_engine)
     
     def _get_primary_crud(self):
-        """Return the Trigger CRUD instance."""
         return self.trigger_crud
-
-    # ==========================================
-    # CREATE & UPDATE OPERATIONS
-    # ==========================================
 
     @with_session
     def create(self, session: Session, **kwargs) -> Dict[str, Any]:
-        """Create a new trigger with comprehensive validation"""
         try:
             result = self.trigger_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
         except Exception as e:
-            context = self._create_error_context("create", 
-                workflow_id=kwargs.get("workflow_id"), 
-                name=kwargs.get("name"),
-                trigger_type=kwargs.get("trigger_type")
-            )
+            context = self._create_error_context("create", workflow_id=kwargs.get("workflow_id"), name=kwargs.get("name"),trigger_type=kwargs.get("trigger_type"))
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
     def update(self, session: Session, trigger_id: str, **kwargs) -> Dict[str, Any]:
-        """Update trigger with validation"""
         if not self.trigger_crud._exists(session, trigger_id):
             self._handle_not_found("Trigger", trigger_id, "update")
 
@@ -68,9 +56,7 @@ class TriggerOrchestrator(BaseOrchestrator):
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
-    def get_by_type(self, session: Session, trigger_type: TriggerType, skip: int = 0, limit: int = 100,
-                   include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
-        """Get triggers by type"""
+    def get_by_type(self, session: Session, trigger_type: TriggerType, skip: int = 0, limit: int = 100, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
         try:
             results = self.trigger_crud._filter(session, 
                 filters={"trigger_type": trigger_type.value},
@@ -91,20 +77,22 @@ class TriggerOrchestrator(BaseOrchestrator):
             if trigger_type:
                 filters["trigger_type"] = trigger_type.value
 
+            self.logger.info(f"Getting active triggers with filters: {filters}")
             results = self.trigger_crud._filter(session, 
                 filters=filters,
                 skip=skip,
                 limit=limit,
                 order_by_field="created_at"
             )
+            self.logger.info(f"Found {len(results)} active triggers")
             return self._serialize_multiple_results(results)
         except Exception as e:
+            self.logger.error(f"Failed to get active triggers: {str(e)}")
             context = self._create_error_context("get_active_triggers", trigger_type=trigger_type.value if trigger_type else None)
             raise OrchestrationError(str(e), context=context) from e
 
     @with_session
     def get_by_webhook_id(self, session: Session, webhook_id: str) -> List[Dict[str, Any]]:
-        """Get triggers by webhook_id (can be multiple triggers with same webhook_id)"""
         try:
             triggers = self.trigger_crud.get_by_webhook_id(session, webhook_id)
             return self._serialize_multiple_results(triggers)

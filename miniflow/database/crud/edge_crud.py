@@ -15,7 +15,7 @@ class EdgeCRUD(BaseCRUD[Edge]):
             "workflow_id", "from_node_id", "to_node_id", "condition_type"
         ]
         self.protected_fields = [
-            'created_at', 'updated_at', 'id', 'workflow_id', 'from_node_id', 'to_node_id'
+            'created_at', 'updated_at', 'id'
         ]
     
     def _validate_workflow_exists(self, session: Session, workflow_id: str) -> Workflow:
@@ -75,7 +75,7 @@ class EdgeCRUD(BaseCRUD[Edge]):
     def _create(self, session: Session, **kwargs) -> Edge:
         try:
             self.logger.debug(f"Creating edge with data: {kwargs}")
-            self._validate_required_fields(required_fields=self.required_fields, input_data=kwargs)
+            self._validate_required_fields(self.required_fields, kwargs)
 
             workflow_id = kwargs.get("workflow_id")
             from_node_id = kwargs.get("from_node_id")

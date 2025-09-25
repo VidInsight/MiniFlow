@@ -21,18 +21,48 @@ class BaseCRUD(Generic[ModelType]):
     """
 
     def __init__(self, model: type[ModelType]):
-        """Initialize BaseCRUD with the specific model type for type-safe operations."""
         self.model = model
         self.model_name = model.__name__
         self.logger = get_logger("database_orchestration")
 
     def _create_error_context(self, operation: str, **kwargs) -> ErrorContext:
-        """Create error context for better error tracking."""
         return ErrorContext(
             operation=operation,
             component=self.__class__.__name__,
             additional_info=kwargs
         )
+
+    def _validate_required_fields(self, required_fields: List[str], data: Dict[str, Any]) -> None:
+        missing_fields = []
+        for field in required_fields:
+            if field not in data or data[field] is None or (isinstance(data[field], str) and not data[field].strip()):
+                missing_fields.append(field)
+        
+        if missing_fields:
+            context = ErrorContext(operation="validate_required_fields", additional_info={"missing_fields": missing_fields})
+            raise ValidationError(f"Missing required fields: {missing_fields}", context=context, severity=ErrorSeverity.HIGH)
+
+    def _validate_protected_fields(self, protected_fields: List[str], data: Dict[str, Any]) -> Dict[str, Any]:
+        clean_data = {}
+        for key, value in data.items():
+            if key not in protected_fields:
+                clean_data[key] = value
+            else:
+                self.logger.warning(f"Removing protected field '{key}' from {self.model_name} data")
+        return clean_data
+
+    def _validate_request_data(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
+        valid_fields = {}
+        invalid_fields = []
+        
+        for key, value in data.items():
+            if hasattr(self.model, key):
+                valid_fields[key] = value
+            else:
+                invalid_fields.append(key)
+                self.logger.warning(f"Invalid field '{key}' for {self.model_name}")
+        
+        return valid_fields, invalid_fields
 
     def _create(self, session: Session, **model_data) -> ModelType:
         """Create new database record with automatic field validation."""

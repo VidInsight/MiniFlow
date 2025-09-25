@@ -20,11 +20,18 @@ class NodeOrchestrator(BaseOrchestrator):
             script_id = kwargs.get('script_id')
             script = self.script_crud._get_by_id(session, script_id)
             
-            if script and script.input_schema:
-                kwargs['output_params'] = script.output_schema
-                kwargs['input_params'] = script.input_schema
-                for key in kwargs['input_params']:
-                    kwargs['input_params'][key].update({'value': None})
+            if script:
+                if script.input_schema:
+                    kwargs['input_params'] = script.input_schema
+                    for key in kwargs['input_params']:
+                        kwargs['input_params'][key].update({'value': None})
+                elif 'input_params' not in kwargs:
+                    kwargs['input_params'] = {}
+                
+                if script.output_schema:
+                    kwargs['output_params'] = script.output_schema
+                elif 'output_params' not in kwargs:
+                    kwargs['output_params'] = {}
 
             result = self.node_crud._create(session, **kwargs)
             return self._serialize_single_result(result)

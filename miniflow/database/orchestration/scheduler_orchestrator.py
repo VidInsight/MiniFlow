@@ -76,11 +76,8 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 'execution_id': execution_result['execution_id'],
                 'workflow_id': execution_result['workflow_id'],
                 'node_id': execution_result['node_id'],
-                'correlation_id': execution_result.get('correlation_id'),
                 'status': ExecutionOutputStatus.SUCCESS if execution_result['status'] == 'SUCCESS' else ExecutionOutputStatus.FAILED,
-                'result_data': execution_result.get('result_data', {}),
-                'started_at': datetime.now(timezone.utc),
-                'ended_at': datetime.now(timezone.utc)
+                'result_data': execution_result.get('result_data', {})
             }
             
             self.execution_output_crud._create(session, **output_data)
@@ -99,8 +96,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 results_dict[output.node_id] = {
                     'status': output.status.value,
                     'result_data': output.result_data,
-                    'start_time': output.started_at.isoformat() if output.started_at else None,
-                    'end_time': output.ended_at.isoformat() if output.ended_at else None
                 }
                 self.execution_output_crud._delete(session, record_id=output.id)
             
@@ -143,28 +138,19 @@ class SchedulerOrchestrator(BaseOrchestrator):
             
             # Build final results dict
             results_dict = {}
-            start_time = None
-            end_time = None
             
             for output in completed_output_nodes:
                 results_dict[output.node_id] = {
                     'status': output.status.value,
                     'result_data': output.result_data,
-                    'start_time': output.started_at.isoformat() if output.started_at else None,
-                    'end_time': output.ended_at.isoformat() if output.ended_at else None
                 }
                 
-                # Track overall execution timing
-                if start_time is None or (output.started_at and output.started_at < start_time):
-                    start_time = output.started_at
-                if end_time is None or (output.ended_at and output.ended_at > end_time):
-                    end_time = output.ended_at
             
             # Update execution record
             data = {
                 'status': ExecutionStatus.COMPLETED,
                 'results': results_dict,
-                'ended_at': end_time
+                'ended_at': datetime.now(timezone.utc)
             }
             self.execution_crud._update(session, execution_id, **data)
                     
@@ -221,6 +207,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
         """
         try:
             self.logger.info(f"Getting ready execution inputs with batch_size={batch_size}")
+            print(f"DEBUG: get_ready_execution_inputs called with batch_size={batch_size}")
             
             # Get execution inputs ready for processing (dependency_count = 0)
             ready_inputs = self.execution_input_crud._filter(
@@ -231,10 +218,15 @@ class SchedulerOrchestrator(BaseOrchestrator):
             )
             
             self.logger.info(f"SQL query returned {len(ready_inputs)} rows")
+            print(f"DEBUG: SQL query returned {len(ready_inputs)} rows")
             
             # Build enhanced task objects with all necessary data
             ready_tasks = []
-            for execution_input in ready_inputs:
+            self.logger.info(f"Processing {len(ready_inputs)} execution inputs")
+            
+            for i, execution_input in enumerate(ready_inputs):
+                self.logger.debug(f"Processing execution input {i+1}/{len(ready_inputs)}: {execution_input.id}")
+                
                 # Get node data for script information
                 node = self.node_crud._get_by_id(session, execution_input.node_id)
                 script = None
@@ -247,7 +239,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
                     'workflow_id': execution_input.workflow_id,
                     'node_id': execution_input.node_id,
                     'trigger_id': execution_input.trigger_id,
-                    'correlation_id': execution_input.correlation_id,
                     'priority': execution_input.priority,
                     'dependency_count': execution_input.dependency_count,
                     'node_params': execution_input.node_params,
@@ -256,11 +247,14 @@ class SchedulerOrchestrator(BaseOrchestrator):
                     'script_path': script.file_path if script else None
                 }
                 ready_tasks.append(task)
+                self.logger.debug(f"Added task {i+1}: {task['node_name']} (script: {task['script_path']})")
             
             self.logger.info(f"Found {len(ready_tasks)} ready execution inputs")
             return ready_tasks
             
         except Exception as e:
+            self.logger.error(f"Exception in get_ready_execution_inputs: {str(e)}", exc_info=True)
+            print(f"DEBUG: Exception in get_ready_execution_inputs: {str(e)}")
             context = self._create_error_context("get_ready_execution_inputs", batch_size=batch_size)
             raise OrchestrationError(f"Failed to get ready execution inputs: {str(e)}", context=context) from e
 

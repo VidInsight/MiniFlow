@@ -17,7 +17,7 @@ class NodeCRUD(BaseCRUD[Node]):
             "name", "workflow_id", "script_id", "timeout_seconds", "input_params", "output_params"
             ]
         self.protected_fields = [
-            'created_at', 'updated_at', 'id', 'workflow_id', 'script_id'
+            'created_at', 'updated_at', 'id'
         ]
 
     def _validate_workflow_exists(self, session: Session, workflow_id: str) -> Workflow:
