@@ -12,7 +12,6 @@ class WorkflowOrchestrator(BaseOrchestrator):
         super().__init__(database_engine)
 
     def _get_primary_crud(self):
-        """Return the Workflow CRUD instance."""
         return self.workflow_crud
 
     @with_session
@@ -38,42 +37,39 @@ class WorkflowOrchestrator(BaseOrchestrator):
 
     @with_session
     def delete(self, session: Session, record_id: str) -> Dict[str, Any]:
-        """Delete workflow with cascade operations."""
-        workflow_id = record_id  # Use consistent parameter name
-        
-        if not self.workflow_crud._exists(session, workflow_id):
-            self._handle_not_found("Workflow", workflow_id, "delete")
-        
+        # VALIDATION - Deletion safety
+        self.workflow_crud._validate_deletion_safety(session, record_id)
+
         try:
             # Check for active executions - use separate queries for each status
-            running_executions = self.execution_crud._filter(session, {"workflow_id": workflow_id, "status": ExecutionStatus.RUNNING}, limit=1)
-            pending_executions = self.execution_crud._filter(session, {"workflow_id": workflow_id, "status": ExecutionStatus.PENDING}, limit=1)
+            running_executions = self.execution_crud._filter(session, {"workflow_id": record_id, "status": ExecutionStatus.RUNNING}, limit=1)
+            pending_executions = self.execution_crud._filter(session, {"workflow_id": record_id, "status": ExecutionStatus.PENDING}, limit=1)
             
             if running_executions or pending_executions:
-                context = self._create_error_context("delete_with_active_executions", workflow_id=workflow_id)
-                raise OrchestrationError(f"Cannot delete workflow '{workflow_id}' - it has active executions", context=context)
+                context = self._create_error_context("delete_with_active_executions", workflow_id=record_id)
+                raise OrchestrationError(f"Cannot delete workflow '{record_id}' - it has active executions", context=context)
             
             # Delete all executions for this workflow (this will handle inputs/outputs)
-            executions = self.execution_crud._filter(session, {"workflow_id": workflow_id})
+            executions = self.execution_crud._filter(session, {"workflow_id": record_id})
             for execution in executions:
                 self.execution_crud._delete(session, execution.id)
             
             # Delete all edges first (before nodes)
-            edges = self.edge_crud._filter(session, {"workflow_id": workflow_id})
+            edges = self.edge_crud._filter(session, {"workflow_id": record_id})
             for edge in edges:
                 self.edge_crud._delete(session, edge.id)
             
             # Delete all nodes
-            nodes = self.node_crud._filter(session, {"workflow_id": workflow_id})
+            nodes = self.node_crud._filter(session, {"workflow_id": record_id})
             for node in nodes:
                 self.node_crud._delete(session, node.id)
             
             # Finally delete the workflow
-            deleted_workflow = self.workflow_crud._delete(session, workflow_id)
+            deleted_workflow = self.workflow_crud._delete(session, record_id)
             return self._serialize_single_result(deleted_workflow)
             
         except Exception as e:
-            context = self._create_error_context("delete", workflow_id=workflow_id)
+            context = self._create_error_context("delete", workflow_id=record_id)
             raise OrchestrationError(str(e), context=context) from e
 
     # Generic CRUD operations inherited from BaseOrchestrator:
@@ -85,7 +81,6 @@ class WorkflowOrchestrator(BaseOrchestrator):
 
     @with_session
     def get_by_name(self, session: Session, name: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
-        """Get workflow by name using filter."""
         if not name:
             return None
 
@@ -130,16 +125,64 @@ class WorkflowOrchestrator(BaseOrchestrator):
             raise OrchestrationError(f"Failed to get recently executed workflows: {str(e)}", context=context) from e
 
     @with_session
-    def get_system_overview_stats(self, session: Session) -> Dict[str, Any]:
-        """Get system overview statistics for workflows."""
+    def get_workflow_graph(self, session: Session, workflow_id: str) -> Dict[str, Any]:
         try:
-            total_workflows = self.workflow_crud._count(session)
-            active_workflows = self.workflow_crud._count_by_status(session, 'ACTIVE')
+            if not self.workflow_crud._exists(session, workflow_id):
+                self._handle_not_found("Workflow", workflow_id, "get_workflow_graph")
             
-            return {
-                'total_workflows': total_workflows or 0,
-                'active_workflows': active_workflows or 0
-            }
+            return self.workflow_crud._get_workflow_graph(session, workflow_id)
         except Exception as e:
-            context = self._create_error_context("get_system_overview_stats")
-            raise OrchestrationError(f"Failed to get workflow system overview: {str(e)}", context=context) from e
+            context = self._create_error_context("get_workflow_graph", workflow_id=workflow_id)
+            raise OrchestrationError(str(e), context=context) from e
+
+    @with_session
+    def validate_workflow_completeness(self, session: Session, workflow_id: str) -> Dict[str, Any]:
+        try:
+            if not self.workflow_crud._exists(session, workflow_id):
+                self._handle_not_found("Workflow", workflow_id, "validate_workflow_completeness")
+            
+            validation_result = {
+                "workflow_id": workflow_id,
+                "is_complete": False,
+                "has_minimum_nodes": False,
+                "has_no_cycles": False,
+                "all_nodes_connected": False,
+                "validation_errors": []
+            }
+            
+            # Get workflow graph
+            graph_data = self.workflow_crud._get_workflow_graph(session, workflow_id)
+            nodes = graph_data.get("nodes", [])
+            edges = graph_data.get("edges", [])
+            
+            # Check minimum nodes
+            if len(nodes) >= 1:
+                validation_result["has_minimum_nodes"] = True
+            else:
+                validation_result["validation_errors"].append("Workflow must have at least 1 node")
+            
+            # Check for cycles
+            has_cycles = self.workflow_crud._detect_cycles(session, workflow_id)
+            if not has_cycles:
+                validation_result["has_no_cycles"] = True
+            else:
+                validation_result["validation_errors"].append("Workflow contains cycles")
+            
+            # Check node connectivity
+            all_connected = self.workflow_crud._check_node_connectivity(session, workflow_id)
+            if all_connected:
+                validation_result["all_nodes_connected"] = True
+            else:
+                validation_result["validation_errors"].append("Not all nodes are connected")
+            
+            # Overall completeness
+            validation_result["is_complete"] = (
+                validation_result["has_minimum_nodes"] and
+                validation_result["has_no_cycles"] and
+                validation_result["all_nodes_connected"]
+            )
+            
+            return validation_result
+        except Exception as e:
+            context = self._create_error_context("validate_workflow_completeness", workflow_id=workflow_id)
+            raise OrchestrationError(str(e), context=context) from e
