@@ -5,13 +5,14 @@ meta {
 }
 
 get {
-  url: {{BASE_URL}}/api/bff/workflows/{{WORKFLOW_ID}}?include_relationshipts=true
+  url: {{BASE_URL}}/api/bff/workflows/{{WORKFLOW_ID}}?include_relationships=true&exclude_fields=executions
   body: none
   auth: inherit
 }
 
 params:query {
-  include_relationshipts: true
+  include_relationships: true
+  exclude_fields: executions
 }
 
 settings {
