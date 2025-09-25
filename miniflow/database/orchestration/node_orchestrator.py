@@ -2,47 +2,34 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from miniflow.database.orchestration.base_orchestrator import BaseOrchestrator, with_session
-from miniflow.core.exceptions import OrchestrationError
+from miniflow.core.exceptions import OrchestrationError, ValidationError, ErrorSeverity, ErrorContext
 from miniflow.database.models import Node
 
 
 class NodeOrchestrator(BaseOrchestrator):
-    """Node orchestrator for basic CRUD operations and node management."""
 
     def __init__(self, database_engine):
         super().__init__(database_engine)
     
     def _get_primary_crud(self):
-        """Return the Node CRUD instance."""
         return self.node_crud
 
     @with_session
     def create(self, session: Session, **kwargs) -> Dict[str, Any]:
         try:
-            # If script_id is provided, fetch script and inject input_schema into params
             script_id = kwargs.get('script_id')
-            if script_id:
-                try:
-                    # Get script using script_crud
-                    script = self.script_crud._get_by_id(session, script_id)
-                    if script and script.input_schema:
-                        # Set params directly to input_schema
-                        kwargs['input_params'] = script.input_schema
-                        for key in kwargs['input_params']:
-                            kwargs['input_params'][key].update({'value': None})
-                        kwargs['output_params'] = script.output_schema
-
-                        self.logger.info(f"Set node params to input_schema from script {script_id}")
-                    else:
-                        self.logger.warning(f"Script {script_id} not found or has no input_schema")
-                except Exception as script_error:
-                    # Log warning but don't fail the node creation
-                    self.logger.warning(f"Failed to fetch script {script_id} for input_schema injection: {script_error}")
+            script = self.script_crud._get_by_id(session, script_id)
+            
+            if script and script.input_schema:
+                kwargs['output_params'] = script.output_schema
+                kwargs['input_params'] = script.input_schema
+                for key in kwargs['input_params']:
+                    kwargs['input_params'][key].update({'value': None})
 
             result = self.node_crud._create(session, **kwargs)
             return self._serialize_single_result(result)
+
         except Exception as e:
-            # Safe key access
             name = kwargs.get("name", "unknown")
             workflow_id = kwargs.get("workflow_id", "unknown")
             context = self._create_error_context("create", workflow_id=workflow_id, name=name)
@@ -54,8 +41,13 @@ class NodeOrchestrator(BaseOrchestrator):
             self._handle_not_found("Node", record_id, "update")
 
         try:
+            if "input_params" in kwargs:
+                for key, value in kwargs['input_params'].items():
+                    kwargs['input_params'][key].update({'value': value.get('value', None)})
+
             result = self.node_crud._update(session, record_id, **kwargs)
             return self._serialize_single_result(result)
+
         except Exception as e:
             context = self._create_error_context("update", record_id=record_id)
             raise OrchestrationError(str(e), context=context) from e
@@ -68,6 +60,7 @@ class NodeOrchestrator(BaseOrchestrator):
         try:
             result = self.node_crud._delete(session, record_id)
             return self._serialize_single_result(result)
+
         except Exception as e:
             context = self._create_error_context("delete", record_id=record_id)
             raise OrchestrationError(str(e), context=context) from e
@@ -81,7 +74,6 @@ class NodeOrchestrator(BaseOrchestrator):
 
     @with_session
     def get_by_name_and_workflow(self, session: Session, name: str, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
-        """Get node by name within a specific workflow."""
         if not name or not workflow_id:
             return None
         try:
@@ -95,7 +87,6 @@ class NodeOrchestrator(BaseOrchestrator):
 
     @with_session
     def get_by_workflow(self, session: Session, workflow_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> List[Dict[str, Any]]:
-        """Get all nodes for a specific workflow."""
         if not workflow_id:
             self.logger.warning("get_by_workflow called with empty workflow_id")
             return []
@@ -106,15 +97,8 @@ class NodeOrchestrator(BaseOrchestrator):
             serialized = self._serialize_multiple_results(results, include_relationships, exclude_fields)
             self.logger.info(f"Serialized {len(serialized)} nodes")
             return serialized
+
         except Exception as e:
             self.logger.error(f"Error in get_by_workflow: {str(e)}", exc_info=True)
             context = self._create_error_context("get_nodes_by_workflow", workflow_id=workflow_id)
             raise OrchestrationError(str(e), context=context) from e
-    @with_session
-    def get_total_count(self, session: Session) -> int:
-        """Get total count of all nodes."""
-        try:
-            return self.node_crud._count(session) or 0
-        except Exception as e:
-            context = self._create_error_context("get_total_count")
-            raise OrchestrationError(f"Failed to get total node count: {str(e)}", context=context) from e
