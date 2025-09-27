@@ -14,7 +14,7 @@ class NodeCRUD(BaseCRUD[Node]):
     def __init__(self):
         super().__init__(Node)
         self.required_fields = [
-            "name", "workflow_id", "script_id", "timeout_seconds", "input_params", "output_params"
+            "name", "workflow_id", "timeout_seconds"
             ]
         self.protected_fields = [
             'created_at', 'updated_at', 'id'

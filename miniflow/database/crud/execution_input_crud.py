@@ -10,6 +10,12 @@ from miniflow.database.crud.base_crud import BaseCRUD
 class ExecutionInputCRUD(BaseCRUD[ExecutionInput]):
     def __init__(self):
         super().__init__(ExecutionInput)
+        self.required_fields = [
+            "execution_id", "workflow_id", "node_id", "node_name"
+        ]
+        self.protected_fields = [
+            'created_at', 'updated_at', 'id'
+        ]
 
     def _get_by_execution(self, session: Session, execution_id: str) -> List[ExecutionInput]:
         return self._filter(session, {'execution_id': execution_id})

@@ -23,8 +23,7 @@ from .models import (EnvironmentVariable,
                      ConditionType,
                      ScriptTestStatus,
                      ValidationStatus,
-                     TriggerType,
-                     TriggerStatus)
+                     TriggerType)
 
 # CRUD
 from .crud.envar_crud import EnvironmentVariableCRUD
@@ -73,7 +72,6 @@ __all__ = [
     "ScriptTestStatus",
     "ValidationStatus",
     "TriggerType",
-    "TriggerStatus",
     # CRUD
     "EnvironmentVariableCRUD",
     "FileUploadCRUD",

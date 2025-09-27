@@ -39,7 +39,14 @@ class SchedulerOrchestrator(BaseOrchestrator):
             status = execution_result.get('status')
             
             if not all([execution_id, node_id, status]):
-                raise OrchestrationError("Missing required fields: execution_id, node_id, status")
+                missing_fields = []
+                if not execution_id: missing_fields.append("execution_id")
+                if not node_id: missing_fields.append("node_id") 
+                if not status: missing_fields.append("status")
+                
+                context = self._create_error_context("validate_execution_result", 
+                    execution_id=execution_id, node_id=node_id, status=status, missing_fields=missing_fields)
+                raise OrchestrationError(f"Missing required fields: {missing_fields}", context=context)
 
             # 1. Always create execution_output record
             self._create_execution_output(session, execution_result)
@@ -60,8 +67,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 self._update_next_node_dependencies(session, execution_id, node_id)
             
             # 6. Log successful processing
-            self.logger.info(f"Successfully processed node {node_id} for execution {execution_id}")
-        
             self.logger.info(f"Successfully processed execution result for {execution_id}/{node_id}")
             return True
             
@@ -69,6 +74,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             context = self._create_error_context("process_execution_result", execution_id=execution_result.get('execution_id'),node_id=execution_result.get('node_id'))
             raise OrchestrationError(f"Failed to process execution result: {str(e)}", context=context) from e
 
+    @with_session
     def _create_execution_output(self, session: Session, execution_result: Dict[str, Any]):
         """Create execution_output record."""
         try:
@@ -85,6 +91,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to create execution_output: {str(e)}") from e
 
+    @with_session
     def _handle_failed_execution(self, session: Session, execution_id: str, failed_node_id: str):
         """Handle FAILED execution: cancel pending tasks and update execution record."""
         try:
@@ -120,6 +127,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to handle failed execution: {str(e)}") from e
 
+    @with_session
     def _is_last_node(self, session: Session, node_id: str):
         """Check if this node is the last node (no outgoing edges)."""
         try:
@@ -130,6 +138,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to check if last node: {str(e)}") from e
 
+    @with_session
     def _handle_complete_execution(self, session: Session, execution_id: str):
         """Handle last node completion: build final results and update execution."""
         try:
@@ -159,6 +168,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to handle last node completion: {str(e)}") from e
 
+    @with_session
     def _update_next_node_dependencies(self, session: Session, execution_id: str, node_id: str):
         """Update dependency counts for next nodes in the workflow."""
         try:
@@ -206,8 +216,10 @@ class SchedulerOrchestrator(BaseOrchestrator):
         Used by Input Handler for task processing.
         """
         try:
+            # Memory protection: limit batch size
+            batch_size = min(max(1, batch_size), 1000)
             self.logger.info(f"Getting ready execution inputs with batch_size={batch_size}")
-            print(f"DEBUG: get_ready_execution_inputs called with batch_size={batch_size}")
+            self.logger.debug(f"DEBUG: get_ready_execution_inputs called with batch_size={batch_size}")
             
             # Get execution inputs ready for processing (dependency_count = 0)
             ready_inputs = self.execution_input_crud._filter(
@@ -218,20 +230,31 @@ class SchedulerOrchestrator(BaseOrchestrator):
             )
             
             self.logger.info(f"SQL query returned {len(ready_inputs)} rows")
-            print(f"DEBUG: SQL query returned {len(ready_inputs)} rows")
+            self.logger.debug(f"DEBUG: SQL query returned {len(ready_inputs)} rows")
             
             # Build enhanced task objects with all necessary data
             ready_tasks = []
             self.logger.info(f"Processing {len(ready_inputs)} execution inputs")
             
+            # Batch load all nodes and scripts to avoid N+1 queries
+            node_ids = [ei.node_id for ei in ready_inputs]
+            nodes = {}
+            if node_ids:
+                nodes = {node.id: node for node in self.node_crud._filter(session, {'id': node_ids})}
+            
+            script_ids = [node.script_id for node in nodes.values() if node.script_id]
+            scripts = {}
+            if script_ids:
+                scripts = {script.id: script for script in self.script_crud._filter(session, {'id': script_ids})}
+            
             for i, execution_input in enumerate(ready_inputs):
                 self.logger.debug(f"Processing execution input {i+1}/{len(ready_inputs)}: {execution_input.id}")
                 
-                # Get node data for script information
-                node = self.node_crud._get_by_id(session, execution_input.node_id)
+                # Get node data from batch-loaded nodes
+                node = nodes.get(execution_input.node_id)
                 script = None
                 if node and node.script_id:
-                    script = self.script_crud._get_by_id(session, node.script_id)
+                    script = scripts.get(node.script_id)
                 
                 task = {
                     'id': execution_input.id,
@@ -324,6 +347,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             context = self._create_error_context("process_task_context", task_id=task.get('id'),execution_id=task.get('execution_id'))
             raise OrchestrationError(f"Failed to process task context: {str(e)}", context=context) from e
 
+    @with_session
     def _resolve_parameter_value(self, session: Session, value: Any, execution_id: str, workflow_id: str, trigger_id: str = None) -> Any:
         """
         Resolve a single parameter value with placeholder support.
@@ -368,6 +392,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.debug(f"Static value, returning as-is: {value}")
             return value
 
+    @with_session
     def _resolve_node_output_reference(self, session: Session, placeholder: str, execution_id: str) -> Any:
         """
         Resolve node output reference: {n{node_id.variable_name}}
@@ -397,6 +422,13 @@ class SchedulerOrchestrator(BaseOrchestrator):
                     "node_id": node_id
                 }
             )
+            
+            # Cache execution outputs to avoid repeated queries
+            if not hasattr(self, '_execution_output_cache'):
+                self._execution_output_cache = {}
+            cache_key = f"{execution_id}_{node_id}"
+            if cache_key not in self._execution_output_cache:
+                self._execution_output_cache[cache_key] = execution_outputs
             
             self.logger.debug(f"Found {len(execution_outputs)} execution outputs for node {node_id}")
             
@@ -440,6 +472,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.error(f"Failed to resolve node output reference {placeholder}: {str(e)}")
             return placeholder  # Return original if resolution fails
 
+    @with_session
     def _resolve_environment_variable_reference(self, session: Session, placeholder: str, workflow_id: str) -> Any:
         """
         Resolve environment variable reference: {e{variable_name}}
@@ -483,6 +516,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.error(f"Failed to resolve environment variable {placeholder}: {str(e)}")
             return placeholder  # Return original if resolution fails
 
+    @with_session
     def _resolve_trigger_data_reference(self, session: Session, placeholder: str, execution_id: str, trigger_id: str) -> Any:
         """
         Resolve trigger data reference: {t{trigger_id.variable_name}}
@@ -506,16 +540,14 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 self.logger.warning(f"Execution {execution_id} not found")
                 return placeholder
                 
-            # Extract trigger data from execution results
-            results = execution.results or {}
-            if isinstance(results, str):
+            # Extract trigger data from execution record
+            trigger_data = execution.trigger_data or {}
+            if isinstance(trigger_data, str):
                 import json
                 try:
-                    results = json.loads(results)
+                    trigger_data = json.loads(trigger_data)
                 except json.JSONDecodeError:
-                    results = {}
-
-            trigger_data = results.get('trigger_data', {})
+                    trigger_data = {}
             
             # Look for the variable in trigger data
             if variable_name in trigger_data:
@@ -539,7 +571,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
                             self.logger.debug(f"Resolved trigger reference {placeholder} from trigger record to: {resolved_value}")
                             return resolved_value
                             
-                self.logger.warning(f"Variable '{variable_name}' not found in trigger data")
+                self.logger.warning(f"Variable '{variable_name}' not found in trigger data. Available keys: {list(trigger_data.keys())}")
                 return placeholder
                 
         except Exception as e:

@@ -22,9 +22,13 @@ class NodeOrchestrator(BaseOrchestrator):
             
             if script:
                 if script.input_schema:
-                    kwargs['input_params'] = script.input_schema
+                    kwargs['input_params'] = script.input_schema.copy()
                     for key in kwargs['input_params']:
-                        kwargs['input_params'][key].update({'value': None})
+                        if isinstance(kwargs['input_params'][key], dict):
+                            kwargs['input_params'][key] = kwargs['input_params'][key].copy()
+                            kwargs['input_params'][key].update({'value': None})
+                        else:
+                            kwargs['input_params'][key] = {'value': None}
                 elif 'input_params' not in kwargs:
                     kwargs['input_params'] = {}
                 

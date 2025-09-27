@@ -12,6 +12,12 @@ from miniflow.database.crud.base_crud import BaseCRUD
 class ExecutionCRUD(BaseCRUD[Execution]):
     def __init__(self):
         super().__init__(Execution)
+        self.required_fields = [
+            "workflow_id", "status"
+        ]
+        self.protected_fields = [
+            'created_at', 'updated_at', 'id'
+        ]
 
     def _delete(self, session: Session, record_id: str) -> Execution:
         try:

@@ -7,6 +7,7 @@ from miniflow.core.logger import get_logger
 from miniflow.app.routes.bff.router import bff_router
 # from miniflow.app.routes.bfd.router import bfd_router  # BFD router not implemented yet
 from miniflow.app.routes.bfa.router import bfa_router
+from miniflow.app.routes.webhook.router import router as webhook_router
 from miniflow.app.middleware import (CorrelationMiddleware,
                                      LoggingMiddleware,
                                      ErrorHandlerMiddleware)
@@ -21,34 +22,31 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("MiniFlow API starting up...")
 
-    # Initialize and start TriggerManager
-    trigger_manager = None
+    # Start cron service for scheduled triggers
+    startup_service = None
     try:
         if hasattr(app.state, 'database_engine') and app.state.database_engine:
             from miniflow.database import DatabaseOrchestrator
-            from miniflow.triggers import TriggerManager
+            from miniflow.app.services.startup import StartupService
             
             # Create database orchestrator
             orchestrator = DatabaseOrchestrator(app.state.database_engine)
             
-            # Create and start trigger manager
-            trigger_manager = TriggerManager(orchestrator)
-            success = await trigger_manager.start()
+            # Create and start startup service
+            startup_service = StartupService(orchestrator)
+            startup_service.start_cron_service()
             
-            if success:
-                # Store trigger manager in app state for dependency injection
-                app.state.trigger_manager = trigger_manager
-                if logger:
-                    logger.info("TriggerManager started successfully")
-            else:
-                if logger:
-                    logger.error("Failed to start TriggerManager")
+            # Store startup service in app state
+            app.state.startup_service = startup_service
+            
+            if logger:
+                logger.info("Cron service started successfully")
         else:
             if logger:
-                logger.warning("Database engine not available, TriggerManager not started")
+                logger.warning("Database engine not available, cron service not started")
     except Exception as e:
         if logger:
-            logger.error(f"Error initializing TriggerManager: {str(e)}")
+            logger.error(f"Error starting cron service: {str(e)}")
 
     yield
 
@@ -56,15 +54,16 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("MiniFlow API shutting down...")
     
-    # Stop TriggerManager
-    if trigger_manager:
+    # Stop cron service
+    if startup_service:
         try:
-            await trigger_manager.stop()
+            startup_service.stop_cron_service()
             if logger:
-                logger.info("TriggerManager stopped successfully")
+                logger.info("Cron service stopped successfully")
         except Exception as e:
             if logger:
-                logger.error(f"Error stopping TriggerManager: {str(e)}")
+                logger.error(f"Error stopping cron service: {str(e)}")
+    
 
 def create_app(database_engine=None) -> FastAPI:
     """FastAPI uygulaması factory"""
@@ -109,6 +108,13 @@ def create_app(database_engine=None) -> FastAPI:
         bfa_router,
         prefix="/api/bfa",
         tags=["Back for Admin"]
+    )
+    
+    # Webhook router (external services için)
+    app.include_router(
+        webhook_router,
+        prefix="/webhook",
+        tags=["Webhooks"]
     )
 
     # Database engine'i app state'e kaydet

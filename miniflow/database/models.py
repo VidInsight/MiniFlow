@@ -84,15 +84,9 @@ class VariableType(str, enum.Enum):
 
 
 class TriggerType(str, enum.Enum):
-    MANUAL = "MANUAL"           # Manuel tetikleme
+    API = "API"              # API tetikleme
     SCHEDULED = "SCHEDULED"     # Zaman bazlı (cron/interval)
     WEBHOOK = "WEBHOOK"         # HTTP webhook endpoint
-
-
-class TriggerStatus(str, enum.Enum):
-    ACTIVE = "ACTIVE"           # Çalışıyor
-    INACTIVE = "INACTIVE"       # Durdurulmuş
-    ERROR = "ERROR"             # Hata durumunda
 
 
 Base = declarative_base()
@@ -371,7 +365,7 @@ class Execution(BaseModel):
     __tablename__ = 'executions'
     
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='CASCADE'), nullable=False)
+    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True)
     correlation_id = Column(String(50), nullable=True)
 
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False)
@@ -446,7 +440,6 @@ class Trigger(BaseModel):
     name = Column(String(100), nullable=False)    
     description = Column(Text, nullable=True)    
     trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
-    status = Column(Enum(TriggerStatus), default=TriggerStatus.ACTIVE, nullable=False, index=True)    
     config = Column(JSON, default=dict, nullable=False)
     input_mapping = Column(JSON, default=dict, nullable=True)
     

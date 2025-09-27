@@ -28,8 +28,6 @@ from miniflow.engine import EngineManager
 from miniflow.scheduler.input_handler import InputHandler, InputHandlerConfig
 from miniflow.scheduler.output_handler import OutputHandler, OutputHandlerConfig
 
-# Trigger imports
-from miniflow.triggers import TriggerManager
 
 # Global singleton instances
 _miniflow_core_instance: Optional['MiniflowCore'] = None
@@ -56,7 +54,6 @@ class MiniflowCore:
         self.input_handler_started = False
         self.output_handler_started = False
         self.execution_engine_started = False
-        self.trigger_manager_started = False
         self.running = False
 
         # Servis instance'ları
@@ -68,7 +65,6 @@ class MiniflowCore:
         self.execution_engine = None
         self.input_handler = None
         self.output_handler = None
-        self.trigger_manager = None
 
     def start_loggers(self):
         """Konfigrasyona göre logger'ları başlatır"""
@@ -398,74 +394,6 @@ class MiniflowCore:
             if self.logger:
                 self.logger.error("Failed to stop input handler", extra={"error": str(e)})
 
-    def start_trigger_manager(self):
-        """Trigger manager'ı başlat"""
-        if self.trigger_manager_started:
-            print("Trigger manager already started")
-            return
-
-        if not self.database_engine_started:
-            print("Database engine must be started before trigger manager")
-            return
-
-        try:
-            print(f"\n{time.asctime()} :: Starting trigger manager...")
-
-            # TriggerManager instance oluştur
-            if self.trigger_manager is None:
-                self.trigger_manager = TriggerManager(self.database_orchestrator)
-            
-            # TriggerManager'ı başlat (async method olduğu için sync wrapper kullan)
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.trigger_manager.start())
-            finally:
-                loop.close()
-            
-            self.trigger_manager_started = True
-
-            # Trigger manager başlangıç logları
-            self.logger.info("Trigger manager started")
-            self.logger.debug("Trigger manager config details", extra=self.trigger_manager.get_component_config())
-
-            print(f"{time.asctime()} :: Trigger manager started successfully")
-        except Exception as e:
-            print(f"{time.asctime()} :: Failed to start trigger manager: {e}")
-            if self.logger:
-                self.logger.error("Failed to start trigger manager", extra={"error": str(e)})
-            raise
-
-    def stop_trigger_manager(self):
-        """Trigger manager'ı durdur"""
-        if not self.trigger_manager_started:
-            print("Trigger manager not started")
-            return
-
-        try:
-            print(f"\n{time.asctime()} :: Stopping trigger manager...")
-
-            # TriggerManager'ı durdur (async method olduğu için sync wrapper kullan)
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.trigger_manager.stop())
-            finally:
-                loop.close()
-            
-            self.trigger_manager_started = False
-            self.trigger_manager = None
-
-            if self.logger:
-                self.logger.info("Trigger manager stopped")
-
-            print(f"{time.asctime()} :: Trigger manager stopped successfully")
-        except Exception as e:
-            print(f"{time.asctime()} :: Failed to stop trigger manager: {e}")
-            if self.logger:
-                self.logger.error("Failed to stop trigger manager", extra={"error": str(e)})
 
     def start_api(self):
         """FastAPI servisini başlatır"""
@@ -554,8 +482,6 @@ class MiniflowCore:
             # 5. Input Handler başlat
             self.start_input_handler()
             
-            # 6. Trigger Manager başlat
-            self.start_trigger_manager()
             
             # 7. Monitoring'i başlat
             self.start_monitoring()
@@ -585,7 +511,6 @@ class MiniflowCore:
             print(f"\t* Execution Engine: {'ACTIVE' if self.execution_engine_started else 'DEACTIVE'}")
             print(f"\t* Output Handler: {'ACTIVE' if self.output_handler_started else 'DEACTIVE'}")
             print(f"\t* Input Handler: {'ACTIVE' if self.input_handler_started else 'DEACTIVE'}")
-            print(f"\t* Trigger Manager: {'ACTIVE' if self.trigger_manager_started else 'DEACTIVE'}")
             print(f"\t* Monitoring: {'ACTIVE' if self.monitoring_started else 'DEACTIVE'}")
             print(f"\t* API: {'ACTIVE' if self.api_started else 'DEACTIVE'}")
             
@@ -612,8 +537,6 @@ class MiniflowCore:
             # 3. Output Handler'ı durdur
             self.stop_output_handler()
             
-            # 4. Trigger Manager'ı durdur
-            self.stop_trigger_manager()
             
             # 5. Execution Engine'i durdur
             self.stop_execution_engine()
@@ -667,7 +590,6 @@ class MiniflowCore:
                 "input_handler": self.input_handler_started,
                 "output_handler": self.output_handler_started,
                 "execution_engine": self.execution_engine_started,
-                "trigger_manager": self.trigger_manager_started,
             },
             "uptime_seconds": time.time() - self.start_time if self.start_time else 0,
             "api_url": f"http://{self.api_config['host']}:{self.api_config['port']}" if self.api_started else None
@@ -804,7 +726,6 @@ def main():
                 print(f"   Execution Engine: {'Active' if services['execution_engine'] else 'Inactive'}")
                 print(f"   Output Handler: {'Active' if services['output_handler'] else 'Inactive'}")
                 print(f"   Input Handler: {'Active' if services['input_handler'] else 'Inactive'}")
-                print(f"   Trigger Manager: {'Active' if services['trigger_manager'] else 'Inactive'}")
                 print(f"   Monitoring: {'Active' if services['monitoring'] else 'Inactive'}")
                 print(f"   API: {'Active' if services['api'] else 'Inactive'}")
                 

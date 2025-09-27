@@ -3,7 +3,7 @@ from sqlalchemy import func, desc, and_
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Optional
 
-from ..models import Workflow, WorkflowStatus, ExecutionStatus, Node, Edge, Execution, Trigger, TriggerStatus
+from ..models import Workflow, WorkflowStatus, ExecutionStatus, Node, Edge, Execution, Trigger
 from ..crud.base_crud import BaseCRUD
 
 from miniflow.core.exceptions import ValidationError, ErrorSeverity, ErrorContext, DatabaseQueryError
@@ -41,7 +41,7 @@ class WorkflowCRUD(BaseCRUD[Workflow]):
             context = ErrorContext(operation="validate_name", additional_info={"field": "name", "value": name, "existing_id": existing.id})
             raise ValidationError(f"Workflow name '{name}' already exists", context=context, severity=ErrorSeverity.HIGH)
         
-        return name.capitalize()
+        return name
     
     def _validate_priority(self, priority: int) -> int:
         if priority < 0:
