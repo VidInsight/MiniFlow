@@ -5,13 +5,12 @@ from threading import Thread, Lock, Event
 
 
 class TypeController:
-    def __init__(self, output_queue, logger, os: bool, process_count: int, task_limit: int, controller_type: str):
+    def __init__(self, output_queue, os: bool, process_count: int, task_limit: int, controller_type: str):
         self.output_queue = output_queue
         self.priority = -19 if os else psutil.HIGH_PRIORITY_CLASS  # self._unix_process_classes() if os else self._nt_process_classes()
         self.process_count = process_count
         self.task_limit = task_limit
         self.controller_type = controller_type
-        self.logger = logger
         self._set_options()
         self._start()
 
@@ -33,15 +32,15 @@ class TypeController:
         self._start_thread_counter()
 
     def _start_processes(self, count):
-        self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Starting {count} processes")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Starting {count} processes")
         for i in range(count):
             try:
                 cmd_parent_conn, cmd_child_conn = Pipe()
                 health_parent_conn, health_child_conn = Pipe()
-                process = BaseProcess(cmd_child_conn, health_child_conn, self.logger, self.output_queue)
+                process = BaseProcess(cmd_child_conn, health_child_conn, self.output_queue)
                 process.start()
                 self._set_process_priority(process.process.pid, self.priority)
-                self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Started process {i}: pid={process.process.pid}")
+                print(f"[TYPE CONTROLLER {self.controller_type}] Started process {i}: pid={process.process.pid}")
                 self.active_processes.append({
                     'name': f'{self.controller_type}-{i}',
                     'pid': process.process.pid,
@@ -51,9 +50,9 @@ class TypeController:
                     'thread_count': 0
                 })
             except Exception as e:
-                self.logger.error(f"[TYPE CONTROLLER {self.controller_type}] FAILED to start process {i}: {str(e)}")
+                print(f"[TYPE CONTROLLER {self.controller_type}] FAILED to start process {i}: {str(e)}")
         
-        self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Successfully started {len(self.active_processes)} processes")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Successfully started {len(self.active_processes)} processes")
 
     def new_process(self):
         self._start_processes(1)
@@ -67,19 +66,19 @@ class TypeController:
         return ps_info_list
 
     def _get_next_process(self):
-        self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Active processes: {len(self.active_processes)}")
-        self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Task limit: {self.task_limit}")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Active processes: {len(self.active_processes)}")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Task limit: {self.task_limit}")
         
         if not self.active_processes:
-            self.logger.warning(f"[TYPE CONTROLLER {self.controller_type}] No active processes available")
+            print(f"[TYPE CONTROLLER {self.controller_type}] No active processes available")
             return None
 
         # Log all process states for debugging
         for i, p in enumerate(self.active_processes):
-            self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Process {i}: pid={p['pid']}, thread_count={p['thread_count']}, limit={self.task_limit}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Process {i}: pid={p['pid']}, thread_count={p['thread_count']}, limit={self.task_limit}")
 
         available_processes = [p for p in self.active_processes if p['thread_count'] < self.task_limit]
-        self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Available processes: {len(available_processes)}")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Available processes: {len(available_processes)}")
 
         selected_process = min(
             (p for p in self.active_processes if p['thread_count'] < self.task_limit),
@@ -88,21 +87,21 @@ class TypeController:
         )
 
         if selected_process:
-            self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Selected process: pid={selected_process['pid']}, thread_count={selected_process['thread_count']}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Selected process: pid={selected_process['pid']}, thread_count={selected_process['thread_count']}")
         else:
-            self.logger.warning(f"[TYPE CONTROLLER {self.controller_type}] No process available under task limit")
+            print(f"[TYPE CONTROLLER {self.controller_type}] No process available under task limit")
 
         return selected_process
 
     def create_thread(self, item: json):
-        self.logger.debug(f"[TYPE CONTROLLER {self.controller_type}] Looking for available process")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Looking for available process")
         process = self._get_next_process()
 
         if process is None:
-            self.logger.warning(f"[TYPE CONTROLLER {self.controller_type}] No available process found")
+            print(f"[TYPE CONTROLLER {self.controller_type}] No available process found")
             return False
 
-        self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Selected process {process['pid']} with {process['thread_count']} threads")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Selected process {process['pid']} with {process['thread_count']} threads")
         command_data = {
             "command": "start_thread",
             "data": "miniflow.engine.process.modules.python_runner.python_runner",
@@ -110,7 +109,7 @@ class TypeController:
             "kwargs": {}
         }
         process.get("cmd_pipe").send(command_data)
-        self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Command sent to process {process['pid']}")
+        print(f"[TYPE CONTROLLER {self.controller_type}] Command sent to process {process['pid']}")
         return True
 
     def shutdown(self):
@@ -121,7 +120,7 @@ class TypeController:
                 p['cmd_pipe'].send({"command": "shutdown"})
                 p['process'].shutdown()
             except Exception as e:
-                self.logger.error(f"[TYPE CONTROLLER {self.controller_type}] Error shutting down process: {e}")
+                print(f"Error shutting down process: {e}")
 
     def _get_process_thread_counts(self):
         with self.process_lock:
@@ -134,7 +133,7 @@ class TypeController:
                     else:
                         proc_dict['thread_count'] = 0
                 except Exception as e:
-                    self.logger.error(f"[TYPE CONTROLLER {self.controller_type}] Error getting thread count: {e}")
+                    print(f"Error getting thread count: {e}")
                     proc_dict['thread_count'] = 0
 
     def _thread_count_updater(self):
@@ -150,13 +149,13 @@ class TypeController:
         try:
             ps_process = psutil.Process(pid)
             ps_process.nice(priority)
-            self.logger.info(f"[TYPE CONTROLLER {self.controller_type}] Priority set successfully for PID {pid}: {priority}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority set successfully for PID {pid}: {priority}")
             return True
         except (psutil.AccessDenied, PermissionError) as e:
-            self.logger.warning(f"[TYPE CONTROLLER {self.controller_type}] Priority access denied for PID {pid} (normal): {e}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority access denied for PID {pid} (normal): {e}")
             return False
         except Exception as e:
-            self.logger.error(f"[TYPE CONTROLLER {self.controller_type}] Priority setting error for PID {pid}: {e}")
+            print(f"[TYPE CONTROLLER {self.controller_type}] Priority setting error for PID {pid}: {e}")
             return False
 
     def _nt_process_classes(self):

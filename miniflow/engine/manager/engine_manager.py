@@ -7,65 +7,79 @@ import signal
 import sys
 import platform
 import multiprocessing
+import time
 
 class EngineManager:
     def __init__(self, queue_limit: int = 20, iob_task_limit: int = 20, cb_task_limit: int = 1):
+        print(f"[ENGINE MANAGER] Constructor starting...")
         self.input_queue = BaseQueue(maxsize=queue_limit)
         self.output_queue = BaseQueue()
         self.process_controller = None
         self.queue_controller = None
         self.started = False
+        print(f"[ENGINE MANAGER] Basic attributes set, getting logger...")
         self.logger = get_logger("execution_engine")
+        print(f"[ENGINE MANAGER] Logger obtained")
 
         self.iob_task_limit = iob_task_limit
         self.cb_task_limit = cb_task_limit
-        self.logger.info(f"[ENGINE MANAGER] Execution Engine initialized with IO_Task_Limit={iob_task_limit}s, CPU_Task_Limit={cb_task_limit}")
+        self.logger.info(f"Execution Engine initialized with IO_Task_Limit={iob_task_limit}s, CPU_Task_Limit={cb_task_limit}")
 
-        self.logger.info("[ENGINE MANAGER] Starting Execution Engine")
+        self.logger.info("Starting Execution Engine")
 
-        self.logger.info(f"[ENGINE MANAGER] Setting up signal handlers...")
+        print(f"[ENGINE MANAGER] Setting up signal handlers...")
         try:
             signal.signal(signal.SIGINT, self._signal_handler)
             signal.signal(signal.SIGTERM, self._signal_handler)
-            self.logger.info(f"[ENGINE MANAGER] Signal handlers set successfully")
+            print(f"[ENGINE MANAGER] Signal handlers set successfully")
         except Exception as e:
-            self.logger.error(f"[ENGINE MANAGER] Signal handler setup failed: {str(e)}")
-
+            print(f"[ENGINE MANAGER] Signal handler setup failed: {str(e)}")
+        
+        print(f"[ENGINE MANAGER] Registering shutdown handler...")
         atexit.register(self.shutdown)
-        self.logger.info(f"[ENGINE MANAGER] Constructor completed successfully")
+        print(f"[ENGINE MANAGER] Constructor completed successfully")
 
     def start(self):
+        print(f"[ENGINE MANAGER] start() method called")
         try:
+            print(f"[ENGINE MANAGER] Checking if already started: {self.started}")
             if not self.started:
-                self.logger.info(f"[ENGINE MANAGER STARTER] Getting system information...")
+                print(f"[ENGINE MANAGER] Getting system information...")
                 # Log system information
                 system_info = platform.system()
+                print(f"[ENGINE MANAGER] System: {system_info}")
                 cpu_count = multiprocessing.cpu_count()
+                print(f"[ENGINE MANAGER] CPU count: {cpu_count}")
                 is_unix = False if system_info == "Windows" else True
+                print(f"[ENGINE MANAGER] Unix mode: {is_unix}")
                 
-                self.logger.info(f"[ENGINE MANAGER STARTER] Engine Manager starting on {system_info} with {cpu_count} CPUs, Unix mode: {is_unix}")
+                self.logger.info(f"Engine Manager starting on {system_info} with {cpu_count} CPUs, Unix mode: {is_unix}")
+                print(f"[ENGINE MANAGER] System: {system_info}, CPUs: {cpu_count}, Unix mode: {is_unix}")
                 
-                self.logger.info(f"[ENGINE MANAGER STARTER] Starting ProcessController...")
-                self.process_controller = ProcessController(output_queue=self.output_queue, logger=self.logger, input_queue=self.input_queue,
+                print(f"[ENGINE MANAGER] Creating ProcessController...")
+                self.process_controller = ProcessController(output_queue=self.output_queue, input_queue=self.input_queue,
                                                             os=is_unix,
                                                             iob_task_limit=self.iob_task_limit, cb_task_limit=self.cb_task_limit)
+                print(f"[ENGINE MANAGER] ProcessController created, starting...")
                 self.process_controller.start()
-                self.logger.info(f"[ENGINE MANAGER STARTER] ProcessController started")
+                print(f"[ENGINE MANAGER] ProcessController started")
 
-                self.logger.info(f"[ENGINE MANAGER STARTER] Starting QueueController...")
-                self.queue_controller = QueueController(input_queue=self.input_queue, logger=self.logger, process_controller=self.process_controller)
+                print(f"[ENGINE MANAGER] Creating QueueController...")
+                self.queue_controller = QueueController(self.input_queue, self.process_controller)
+                print(f"[ENGINE MANAGER] QueueController created, starting...")
                 self.queue_controller.start()
-                self.logger.info(f"[ENGINE MANAGER STARTER] QueueController started")
+                print(f"[ENGINE MANAGER] QueueController started")
 
                 self.started = True
-                self.logger.info("[ENGINE MANAGER STARTER] Execution Engine started successfully")
+                self.logger.info("Execution Engine started successfully")
                 return True
 
             else:
                 return False
 
         except Exception as e:
-            self.logger.error(f"[ENGINE MANAGER STARTER] Failed to start Execution Engine: {str(e)}")
+            print(f"[ENGINE MANAGER] EXCEPTION during start: {str(e)}")
+            self.logger.error(f"Failed to start Execution Engine: {str(e)}")
             self.started = False
             return False
 
@@ -82,36 +96,32 @@ class EngineManager:
         Performance optimized version with retry mechanism
         """
         if not self.started:
-            self.logger.error("[ENGINE MANAGER PUT ITEMS] Execution Engine is not running")
+            self.logger.error("Execution Engine is not running")
             return False
 
-        self.logger.info(f"[ENGINE MANAGER PUT ITEMS] Received {len(items)} tasks from InputHandler")
+        self.logger.info(f"Received {len(items)} tasks from InputHandler")
         
         # Log task details for debugging
         for i, item in enumerate(items):
-            self.logger.debug(f"[ENGINE MANAGER PUT ITEMS] Task {i+1}: execution_id={item.get('execution_id')}, "
+            self.logger.debug(f"Task {i+1}: execution_id={item.get('execution_id')}, "
                             f"node_id={item.get('node_id')}, script_path={item.get('script_path')}")
-            self.logger.debug(f"[ENGINE MANAGER PUT ITEMS] Task {i+1} context: {item.get('context', {})}")
+            self.logger.debug(f"Task {i+1} context: {item.get('context', {})}")
 
         if not items:
             return True
 
+        # Use optimized batch put method
         result = self.input_queue.put_batch(items)
-        self.logger.info(f"[ENGINE MANAGER PUT ITEMS] Batch put result: {result}")
+        self.logger.info(f"Batch put result: {result}")
         return result
 
     def shutdown(self):
-        self.logger.info(f"[ENGINE MANAGER SHUTDOWN] Engine shutting down")
         """Graceful shutdown"""
         if self.queue_controller and self.process_controller and self.started:
             self.queue_controller.shutdown()
             self.process_controller.shutdown()
             self.started = False
-            self.logger.info(f"[ENGINE MANAGER SHUTDOWN] Engine shut down successfully")
             return True
-
-        self.logger.error(f"[ENGINE MANAGER SHUTDOWN] Engine shut down failed")
-        return False
 
     def _signal_handler(self, signum, frame):
         self.shutdown()
@@ -128,7 +138,7 @@ class EngineManager:
         Performance optimized version for batch result processing
         """
         if not self.started:
-            self.logger.warning("[ENGINE MANAGER GET ITEMS] Engine not started, returning empty results")
+            self.logger.warning("Engine not started, returning empty results")
             return []
 
         items = []
@@ -138,15 +148,15 @@ class EngineManager:
                 if item is None:
                     break
                 items.append(item)
-                self.logger.debug(f"[ENGINE MANAGER GET ITEMS] Retrieved result {i+1}: execution_id={item.get('execution_id')}, "
+                self.logger.debug(f"Retrieved result {i+1}: execution_id={item.get('execution_id')}, "
                                 f"status={item.get('status')}")
             except Exception as e:
-                self.logger.error(f"[ENGINE MANAGER GET ITEMS] Exception getting item {i+1}: {str(e)}")
+                self.logger.debug(f"Exception getting item {i+1}: {str(e)}")
                 break
 
         if items:
-            self.logger.info(f"[ENGINE MANAGER GET ITEMS] Retrieved {len(items)} execution results from output queue")
+            self.logger.info(f"Retrieved {len(items)} execution results from output queue")
         else:
-            self.logger.debug("[ENGINE MANAGER GET ITEMS] No execution results available in output queue")
+            self.logger.debug("No execution results available in output queue")
             
         return items
