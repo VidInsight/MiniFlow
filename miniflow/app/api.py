@@ -7,7 +7,7 @@ from miniflow.core.logger import get_logger
 from miniflow.app.routes.bff.router import bff_router
 # from miniflow.app.routes.bfd.router import bfd_router  # BFD router not implemented yet
 from miniflow.app.routes.bfa.router import bfa_router
-from miniflow.app.routes.webhook.router import router as webhook_router
+# from miniflow.app.routes.webhook.router import router as webhook_router  # Webhook router not implemented yet
 from miniflow.app.middleware import (CorrelationMiddleware,
                                      LoggingMiddleware,
                                      ErrorHandlerMiddleware)
@@ -110,12 +110,12 @@ def create_app(database_engine=None) -> FastAPI:
         tags=["Back for Admin"]
     )
     
-    # Webhook router (external services için)
-    app.include_router(
-        webhook_router,
-        prefix="/webhook",
-        tags=["Webhooks"]
-    )
+    # Webhook router (external services için) - TODO: Implement webhook router
+    # app.include_router(
+    #     webhook_router,
+    #     prefix="/webhook",
+    #     tags=["Webhooks"]
+    # )
 
     # Database engine'i app state'e kaydet
     if database_engine:
