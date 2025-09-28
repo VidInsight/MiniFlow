@@ -74,7 +74,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
             context = self._create_error_context("process_execution_result", execution_id=execution_result.get('execution_id'),node_id=execution_result.get('node_id'))
             raise OrchestrationError(f"Failed to process execution result: {str(e)}", context=context) from e
 
-    @with_session
     def _create_execution_output(self, session: Session, execution_result: Dict[str, Any]):
         """Create execution_output record."""
         try:
@@ -91,7 +90,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to create execution_output: {str(e)}") from e
 
-    @with_session
     def _handle_failed_execution(self, session: Session, execution_id: str, failed_node_id: str):
         """Handle FAILED execution: cancel pending tasks and update execution record."""
         try:
@@ -127,7 +125,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to handle failed execution: {str(e)}") from e
 
-    @with_session
     def _is_last_node(self, session: Session, node_id: str):
         """Check if this node is the last node (no outgoing edges)."""
         try:
@@ -138,7 +135,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to check if last node: {str(e)}") from e
 
-    @with_session
     def _handle_complete_execution(self, session: Session, execution_id: str):
         """Handle last node completion: build final results and update execution."""
         try:
@@ -168,7 +164,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
         except Exception as e:
             raise OrchestrationError(f"Failed to handle last node completion: {str(e)}") from e
 
-    @with_session
     def _update_next_node_dependencies(self, session: Session, execution_id: str, node_id: str):
         """Update dependency counts for next nodes in the workflow."""
         try:
@@ -355,7 +350,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
             context = self._create_error_context("process_task_context", task_id=task.get('id'),execution_id=task.get('execution_id'))
             raise OrchestrationError(f"Failed to process task context: {str(e)}", context=context) from e
 
-    @with_session
     def _resolve_parameter_value(self, session: Session, value: Any, execution_id: str, workflow_id: str, trigger_id: str = None) -> Any:
         """
         Resolve a single parameter value with placeholder support.
@@ -412,7 +406,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.debug(f"Static value, returning as-is: {value}")
             return value
 
-    @with_session
     def _resolve_node_output_reference(self, session: Session, placeholder: str, execution_id: str) -> Any:
         """
         Resolve node output reference: {n{node_id.variable_name}}
@@ -492,7 +485,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.error(f"Failed to resolve node output reference {placeholder}: {str(e)}")
             return placeholder  # Return original if resolution fails
 
-    @with_session
     def _resolve_environment_variable_reference(self, session: Session, placeholder: str, workflow_id: str) -> Any:
         """
         Resolve environment variable reference: {e{variable_name}}
@@ -536,7 +528,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
             self.logger.error(f"Failed to resolve environment variable {placeholder}: {str(e)}")
             return placeholder  # Return original if resolution fails
 
-    @with_session
     def _resolve_trigger_data_reference(self, session: Session, placeholder: str, execution_id: str, trigger_id: str) -> Any:
         """
         Resolve trigger data reference: {t{trigger_id.variable_name}}
