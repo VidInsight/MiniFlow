@@ -83,7 +83,7 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 'workflow_id': execution_result['workflow_id'],
                 'node_id': execution_result['node_id'],
                 'status': ExecutionOutputStatus.SUCCESS if execution_result['status'] == 'SUCCESS' else ExecutionOutputStatus.FAILED,
-                'result_data': execution_result.get('result_data', {})
+                'result_data': execution_result.get('result_data', {}) if execution_result.get('result_data') else {}
             }
             
             self.execution_output_crud._create(session, **output_data)
@@ -240,12 +240,20 @@ class SchedulerOrchestrator(BaseOrchestrator):
             node_ids = [ei.node_id for ei in ready_inputs]
             nodes = {}
             if node_ids:
-                nodes = {node.id: node for node in self.node_crud._filter(session, {'id': node_ids})}
+                # Use IN operator for batch loading nodes
+                from sqlalchemy import select
+                from ..models import Node, Script
+                stmt = select(Node).where(Node.id.in_(node_ids))
+                node_results = session.execute(stmt).scalars().all()
+                nodes = {node.id: node for node in node_results}
             
             script_ids = [node.script_id for node in nodes.values() if node.script_id]
             scripts = {}
             if script_ids:
-                scripts = {script.id: script for script in self.script_crud._filter(session, {'id': script_ids})}
+                # Use IN operator for batch loading scripts
+                stmt = select(Script).where(Script.id.in_(script_ids))
+                script_results = session.execute(stmt).scalars().all()
+                scripts = {script.id: script for script in script_results}
             
             for i, execution_input in enumerate(ready_inputs):
                 self.logger.debug(f"Processing execution input {i+1}/{len(ready_inputs)}: {execution_input.id}")
@@ -369,23 +377,35 @@ class SchedulerOrchestrator(BaseOrchestrator):
         if value.startswith('{n{') and value.endswith('}}'):
             # Node output reference: {n{node_id.variable_name}}
             self.logger.debug(f"Detected node reference: {value}")
-            resolved = self._resolve_node_output_reference(session, value, execution_id)
-            self.logger.debug(f"Node reference resolved: {value} -> {resolved}")
-            return resolved
+            try:
+                resolved = self._resolve_node_output_reference(session, value, execution_id)
+                self.logger.debug(f"Node reference resolved: {value} -> {resolved}")
+                return resolved
+            except Exception as e:
+                self.logger.warning(f"Failed to resolve node reference {value}: {str(e)}")
+                return value
             
         elif value.startswith('{e{') and value.endswith('}}'):
             # Environment variable reference: {e{variable_name}}
             self.logger.debug(f"Detected environment variable reference: {value}")
-            resolved = self._resolve_environment_variable_reference(session, value, workflow_id)
-            self.logger.debug(f"Environment variable resolved: {value} -> {resolved}")
-            return resolved
+            try:
+                resolved = self._resolve_environment_variable_reference(session, value, workflow_id)
+                self.logger.debug(f"Environment variable resolved: {value} -> {resolved}")
+                return resolved
+            except Exception as e:
+                self.logger.warning(f"Failed to resolve environment variable reference {value}: {str(e)}")
+                return value
             
         elif value.startswith('{t{') and value.endswith('}}'):
             # Trigger data reference: {t{trigger_id.variable_name}}
             self.logger.debug(f"Detected trigger data reference: {value}")
-            resolved = self._resolve_trigger_data_reference(session, value, execution_id, trigger_id)
-            self.logger.debug(f"Trigger data resolved: {value} -> {resolved}")
-            return resolved
+            try:
+                resolved = self._resolve_trigger_data_reference(session, value, execution_id, trigger_id)
+                self.logger.debug(f"Trigger data resolved: {value} -> {resolved}")
+                return resolved
+            except Exception as e:
+                self.logger.warning(f"Failed to resolve trigger data reference {value}: {str(e)}")
+                return value
             
         else:
             # Static value
