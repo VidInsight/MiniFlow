@@ -12,12 +12,13 @@ class QueueController:
 
     def start(self):
         if self.started:
-            raise RuntimeError("QueueWatcher already started")
+            return False, "[QUEUE CONTROLLER] QueueController already started"
 
         watcher_thread = Thread(target=self.watch_input_queue, daemon=True)
         watcher_thread.start()
 
         self.started = True
+        return True, "[QUEUE CONTROLLER] QueueController started successfully"
 
     def watch_input_queue(self):
         while not self.shutdown_event.is_set():
