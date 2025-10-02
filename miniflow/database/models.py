@@ -1,135 +1,75 @@
 import uuid
 import enum
-from typing import Optional, List
+from typing import cast, Iterable, Any
 from datetime import datetime, timezone
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint
+from sqlalchemy.orm import declarative_base, relationship, validates
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint, Index, event
 
+from .enums import *
 
-class WorkflowStatus(str, enum.Enum):
-    DRAFT = "DRAFT"
-    ACTIVE = "ACTIVE"
-    DEACTIVATED = "DEACTIVATED"
-
-
-class ScriptTestStatus(str, enum.Enum):
-    UNTESTED = "UNTESTED"
-    PASSED = "PASSED"
-    FAILED = "FAILED"
-
-
-class ValidationStatus(str, enum.Enum):
-    UNTESTED = "UNTESTED"
-    VALID = "VALID"
-    EXPIRED = "EXPIRED"
-    INVALID = "INVALID"
-    ERROR = "ERROR"
-
-
-class ConditionType(str, enum.Enum):
-    SUCCESS = "SUCCESS"
-    FAILURE = "FAILURE"
-    ALWAYS = "ALWAYS"
-    CONDITIONAL = "CONDITIONAL"
-
-
-class ExecutionStatus(str, enum.Enum):
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    CANCELLED = "CANCELLED"
-
-
-class ExecutionOutputStatus(str, enum.Enum):
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
-    TIMEOUT = "TIMEOUT"
-    CANCELLED = "CANCELLED"  # Tutarlılık için düzeltildi
-
-
-class ArchiveReason(str, enum.Enum):
-    AUTO_CLEANUP = "AUTO CLEANUP"
-    MANUAL_ARCHIVE = "MANUAL ARCHIVE"  # "MANUEL" -> "MANUAL" düzeltildi
-    RETENTION_POLICY = "RETENTION POLICY"
-    SYSTEM_CLEANUP = "SYSTEM CLEANUP"
-
-
-class AuditAction(str, enum.Enum):
-    CREATE = "CREATE"
-    UPDATE = "UPDATE"
-    DELETE = "DELETE"
-    EXECUTE = "EXECUTE"
-    ARCHIVE = "ARCHIVE"
-
-
-class VariableScope(str, enum.Enum):
-    GLOBAL = "GLOBAL"
-    WORKFLOW = "WORKFLOW"
-    TRIGGER = "TRIGGER"
-    USER = "USER"
-    NODE = "NODE"
-
-
-class VariableType(str, enum.Enum):
-    STRING = "STRING"
-    INTEGER = "INTEGER"
-    FLOAT = "FLOAT"
-    BOOLEAN = "BOOLEAN"
-    JSON = "JSON"
-    SECRET = "SECRET"
-    CREDENTIAL = "CREDENTIAL"
-    FILE_PATH = "FILE_PATH"
-    URL = "URL"
-
-
-class TriggerType(str, enum.Enum):
-    API = "API"              # API tetikleme
-    SCHEDULED = "SCHEDULED"     # Zaman bazlı (cron/interval)
-    WEBHOOK = "WEBHOOK"         # HTTP webhook endpoint
-
-
+# SQLAlchemy declarative base for all models
 Base = declarative_base()
 
 
 class BaseModel(Base):
+    """Abstract base model with common functionality for all entities"""
     __abstract__ = True
     __allow_unmapped__ = True
 
     @classmethod
     def _generate_id(cls):
-        prefix = getattr(cls, '__prefix__', 'XX')
-        uuid_suffix = str(uuid.uuid4()).replace('-', '')[:17].upper()
+        """Generate unique ID with class-specific prefix"""
+        prefix = getattr(cls, '__prefix__', 'XX')  # Get class prefix (e.g., 'WF' for Workflow)
+        uuid_suffix = str(uuid.uuid4()).replace('-', '')[:17].upper()  # 17-char UUID suffix
         return f"{prefix}-{uuid_suffix}"
 
+    # Primary key with auto-generated ID
     id = Column(String(20), primary_key=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    # Timestamps with automatic updates
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    # Audit Trail - Track who created/updated records
+    created_by = Column(String(20), nullable=True)
+    updated_by = Column(String(20), nullable=True)
+
+    # Soft Delete - Mark records as deleted without removing them
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(String(20), nullable=True)
+
+    # Optimistic Locking - Prevent concurrent modification conflicts
+    version_number = Column(Integer, default=1, nullable=False)
 
     def __init__(self, **kwargs):
         """Initialize the model with auto-generated ID if not provided"""
+        # Auto-generate ID if not provided (uses class-specific prefix)
         if 'id' not in kwargs or kwargs['id'] is None:
             kwargs['id'] = self._generate_id()
         super().__init__(**kwargs)
 
     def __repr__(self) -> str:
+        """Return string representation of the model instance"""
         return f"<{self.__class__.__name__}(id={self.id})>"
 
     def to_dict(self, include_relationships=False, exclude_fields=None, include_properties=False) -> dict:
-
+        """Convert model instance to dictionary representation"""
         result = {}
         exclude_fields = exclude_fields or []
 
-        # Process table columns
-        for column in self.__table__.columns:
+        # Process table columns - cast() helps type checker understand SQLAlchemy collections
+        columns = cast(Iterable[Any], self.__table__.c)
+        for column in columns:
             field_name = column.name
             if field_name in exclude_fields:
                 continue
 
             try:
+                # Get column value and serialize it
                 value = getattr(self, field_name)
-                result[field_name] = self._serialize_value(value)
-            except Exception:
+                result[field_name] = BaseModel._serialize_value(value)
+            except (AttributeError, TypeError, ValueError):
                 # Skip problematic fields silently
                 continue
 
@@ -140,63 +80,70 @@ class BaseModel(Base):
                     continue
 
                 try:
+                    # Get relationship value and serialize it
                     relationship_value = getattr(self, relationship_name)
-                    result[relationship_name] = self._serialize_relationship(relationship_value)
-                except Exception:
-                    # Skip problematic relationships
+                    result[relationship_name] = BaseModel._serialize_relationship(relationship_value)
+                except (AttributeError, TypeError, ValueError):
+                    # Skip problematic relationships silently
                     continue
 
         # Process @property attributes if requested
         if include_properties:
-            # Get all properties defined on the class
             for name in dir(self.__class__):
-                if name.startswith('_'):  # Skip private/protected methods
+                # Skip private attributes
+                if name.startswith('_'):
                     continue
-                    
+
                 if name in exclude_fields:
                     continue
-                
-                # Check if it's a property
+
+                # Check if it's a property and serialize it
                 attr = getattr(self.__class__, name, None)
                 if isinstance(attr, property):
                     try:
                         value = getattr(self, name)
-                        result[name] = self._serialize_value(value)
-                    except Exception:
-                        # Skip properties that can't be evaluated
+                        result[name] = BaseModel._serialize_value(value)
+                    except (AttributeError, TypeError, ValueError):
+                        # Skip problematic properties silently
                         continue
 
         return result
 
-    def _serialize_value(self, value):
-        """Serialize individual values"""
+    @staticmethod
+    def _serialize_value(value):
+        """Serialize individual values to JSON-safe format"""
         if value is None:
             return None
         elif isinstance(value, datetime):
+            # Convert datetime to ISO format string
             return value.isoformat()
         elif isinstance(value, enum.Enum):
+            # Convert enum to its value
             return value.value
         elif isinstance(value, (int, float, str, bool, list, dict)):
+            # Already JSON-safe types
             return value
         else:
-            # Try to convert to string for unknown types
             try:
+                # Try to convert to string as fallback
                 return str(value)
-            except Exception:
+            except (TypeError, ValueError):
+                # Return None if conversion fails
                 return None
 
-    def _serialize_relationship(self, relationship_value):
-        """Serialize relationship values safely"""
+    @staticmethod
+    def _serialize_relationship(relationship_value):
+        """Serialize relationship values safely (collections or single objects)"""
         if relationship_value is None:
             return None
-        elif hasattr(relationship_value, '__iter__') and not isinstance(relationship_value, (str, dict)):
-            # Collection relationship (one-to-many, many-to-many)
+        elif hasattr(relationship_value, '__iter__') and not isinstance(relationship_value, (str, dict, bytes)):
+            # Handle collections (lists, sets, etc.) - avoid infinite recursion
             return [
                 item.to_dict(include_relationships=False) if hasattr(item, 'to_dict') else str(item)
                 for item in relationship_value
             ]
         else:
-            # Single relationship (one-to-one, many-to-one)
+            # Handle single objects - avoid infinite recursion
             return (
                 relationship_value.to_dict(include_relationships=False)
                 if hasattr(relationship_value, 'to_dict')
@@ -205,244 +152,567 @@ class BaseModel(Base):
 
 
 class EnvironmentVariable(BaseModel):
+    """Environment variables for workflow execution"""
     __prefix__ = "EV"
     __tablename__ = 'environment_variables'
 
-    # Temel bilgiler
+    # Basic information
     name = Column(String(100), nullable=False, index=True)
     value = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
 
-    # Tip ve kapsam
+    # Type and scope classification
     variable_type = Column(Enum(VariableType), default=VariableType.STRING, nullable=False, index=True)
     scope = Column(Enum(VariableScope), default=VariableScope.GLOBAL, nullable=False, index=True)
 
+    # Security - Encryption flag for sensitive values
+    is_encrypted = Column(Boolean, default=False, nullable=False)
+
+    # Relationships - Role-based access control
+    user_roles = relationship("UserEnvarRole", back_populates="environment_variable", cascade="all, delete-orphan")
+
 
 class FileUpload(BaseModel):
+    """File upload management with security scanning"""
     __prefix__ = "FU"
     __tablename__ = 'file_uploads'
+    __table_args__ = (
+        CheckConstraint('file_size > 0', name='_positive_file_size'),
+        CheckConstraint('file_size <= 104857600', name='_max_file_size_100mb'),  # 100MB limit
+    )
 
-    # Temel bilgiler
-    name = Column(String(255), unique=True, nullable=False, index=True)  # file_name.file_extension format
-    filename = Column(String(255), nullable=False)  # Base filename without extension
-    file_extension = Column(String(20), nullable=True)  # File extension (.pdf, .txt, etc.)
-    file_path = Column(Text, unique=True, nullable=False)  # Absolute path to file
+    # Basic file information
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_extension = Column(String(20), nullable=True)
+    file_path = Column(Text, unique=True, nullable=False)
     file_size = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=True)
     checksum = Column(String(64), nullable=True)
-    # uploaded_by = Column(String(20), ForeignKey('users.id'), nullable=True)
     is_temporary = Column(Boolean, default=True)
+
+    # Relationships - Role-based access control
+    user_roles = relationship("UserFileRole", back_populates="file_upload", cascade="all, delete-orphan")
 
 
 class Script(BaseModel):
+    """Executable scripts with versioning, testing, and performance tracking"""
     __prefix__ = "SC"
     __tablename__ = 'scripts'
 
-    # Temel bilgiler
+    # Basic information
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
-    version = Column(String(20), default="1.0.0", nullable=False)
 
-    # Category information
+    # Organization - Category and subcategory for grouping
     category = Column(String(50), nullable=False, index=True)
     subcategory = Column(String(50), nullable=True, index=True)
 
-    # File information
-    file_extension = Column(String(10), nullable=True)  # .py, .sh, .js, etc.
-    file_path = Column(Text, nullable=True)  # scripts/category/subcategory/filename.ext
-    file_size = Column(Integer, nullable=True)  # File size in bytes
-    content = Column(String, nullable=True)
+    # File information - Script storage and metadata
+    file_extension = Column(String(10), nullable=True)
+    file_path = Column(Text, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    content = Column(Text, nullable=True)
 
-    # Environment
-    required_packages = Column(JSON, default=list, nullable=False)  # ["requests==2.28.0"]
+    # Environment - Required Python packages
+    required_packages = Column(JSON, default=lambda: [], nullable=False)
 
-    # Input/Output tanımları
-    input_schema = Column(JSON, default=dict, nullable=False)  # JSON Schema
-    output_schema = Column(JSON, default=dict, nullable=False)  # JSON Schema
-    test_input_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
-    test_output_params = Column(JSON, default=dict, nullable=False)  # Backward compatibility
+    # Schema definitions - Input/output validation
+    input_schema = Column(JSON, default=lambda: {}, nullable=False)
+    output_schema = Column(JSON, default=lambda: {}, nullable=False)
+    test_input_params = Column(JSON, default=lambda: {}, nullable=False)
+    test_output_params = Column(JSON, default=lambda: {}, nullable=False)
 
-    # Test ve kalite
+    # Testing and quality assurance
     test_status = Column(Enum(ScriptTestStatus), default=ScriptTestStatus.UNTESTED, nullable=False, index=True)
-    test_coverage = Column(Float, nullable=True)  # Yüzde olarak
+    test_coverage = Column(Float, nullable=True)
     last_test_run_at = Column(DateTime, nullable=True, index=True)
-    test_results = Column(JSON, default=dict, nullable=False)
+    test_results = Column(JSON, default=lambda: {}, nullable=False)
 
-    # Performans metrikleri
+    # Performance metrics - Execution statistics
     avg_execution_time = Column(Float, nullable=True)
     min_execution_time = Column(Float, nullable=True)
     max_execution_time = Column(Float, nullable=True)
-    success_rate = Column(Float, nullable=True)  # 0.0 - 1.0
+    success_rate = Column(Float, nullable=True)
     total_executions = Column(Integer, default=0, nullable=False)
 
-    # Metadata
-    tags = Column(JSON, default=list, nullable=False)  # ["email", "pdf", "urgent"]
+    # Security and approval workflow
+    is_approved = Column(Boolean, default=False, nullable=False, index=True)
+    approved_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    is_dangerous = Column(Boolean, default=False, nullable=False)
+
+    # Metadata and documentation
+    tags = Column(JSON, default=lambda: [], nullable=False)
     author = Column(String(100), nullable=True)
     documentation_url = Column(String(500), nullable=True)
 
     # Relationships
     nodes = relationship("Node", back_populates="script")
+    approver = relationship("User", foreign_keys="[Script.approved_by]")
 
 
 class Workflow(BaseModel):
+    """Workflow definition and execution management"""
     __prefix__ = "WF"
     __tablename__ = 'workflows'
 
+    # Basic workflow information
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     priority = Column(Integer, default=0, nullable=False)
-    status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False)
-    status_message = Column(Text, nullable=True, default='Currently no error context is avaliable')
+    status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False, index=True)
+    status_message = Column(Text, nullable=True, default='Currently no error context is available')
 
+    # Ownership and access control
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    is_public = Column(Boolean, default=False, nullable=False)
+
+    # Execution statistics - Performance tracking
     total_executions = Column(Integer, default=0, nullable=False)
     successful_executions = Column(Integer, default=0, nullable=False)
     failed_executions = Column(Integer, default=0, nullable=False)
     cancelled_executions = Column(Integer, default=0, nullable=False)
-    
-    avg_execution_duration = Column(Float, nullable=True)  # seconds
-    min_execution_duration = Column(Float, nullable=True)  # seconds
-    max_execution_duration = Column(Float, nullable=True)  # seconds
-   
+
+    # Performance metrics - Duration tracking
+    avg_execution_duration = Column(Float, nullable=True)
+    min_execution_duration = Column(Float, nullable=True)
+    max_execution_duration = Column(Float, nullable=True)
+
+    # Execution timestamps - Last execution tracking
     last_executed_at = Column(DateTime, nullable=True, index=True)
     last_successful_execution_at = Column(DateTime, nullable=True)
     last_failed_execution_at = Column(DateTime, nullable=True)
-    
-    nodes = relationship("Node", back_populates="workflow")
-    edges = relationship("Edge", back_populates="workflow")
-    executions = relationship("Execution", back_populates="workflow")
+
+    # Relationships
+    nodes = relationship("Node", back_populates="workflow", cascade="all, delete-orphan")
+    edges = relationship("Edge", back_populates="workflow", cascade="all, delete-orphan")
+    executions = relationship("Execution", back_populates="workflow", cascade="all, delete-orphan")
     triggers = relationship("Trigger", back_populates="workflow", cascade="all, delete-orphan")
+    user_roles = relationship("UserWorkflowRole", back_populates="workflow", cascade="all, delete-orphan")
+    execution_inputs = relationship("ExecutionInput", back_populates="workflow")
+    execution_outputs = relationship("ExecutionOutput", back_populates="workflow")
 
 
 class Node(BaseModel):
+    """Workflow nodes representing executable steps"""
     __prefix__ = "ND"
     __tablename__ = 'nodes'
     __table_args__ = (
         UniqueConstraint('workflow_id', 'name', name='_workflow_node_name_unique'),
-        )
+        CheckConstraint('max_retries >= 0', name='_non_negative_retries'),
+        CheckConstraint('timeout_seconds > 0', name='_positive_timeout'),
+    )
 
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    script_id = Column(String(20), ForeignKey('scripts.id', ondelete='SET NULL'), nullable=True)
+    # Relationships - Parent workflow and associated script
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
+    script_id = Column(String(20), ForeignKey('scripts.id', ondelete='RESTRICT'), nullable=True)
 
+    # Node configuration
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    input_params = Column(JSON, nullable=True, default=dict)
-    output_params = Column(JSON, nullable=True, default=dict)
-    meta_data = Column(JSON, default=dict, nullable=True)
+    input_params = Column(JSON, nullable=True, default=lambda: {})
+    output_params = Column(JSON, nullable=True, default=lambda: {})
+    meta_data = Column(JSON, default=lambda: {}, nullable=True)
+    
+    # Execution settings - Retry and timeout configuration
     max_retries = Column(Integer, default=3, nullable=False)
     timeout_seconds = Column(Integer, default=300, nullable=False)
 
+    # Relationships
     workflow = relationship("Workflow", back_populates="nodes")
     script = relationship("Script", back_populates="nodes")
-
-    outgoing_edges = relationship("Edge", foreign_keys="Edge.from_node_id", back_populates="from_node")
-    incoming_edges = relationship("Edge", foreign_keys="Edge.to_node_id", back_populates="to_node")
-
+    outgoing_edges = relationship("Edge", foreign_keys="[Edge.from_node_id]", back_populates="from_node", cascade="all, delete-orphan")
+    incoming_edges = relationship("Edge", foreign_keys="[Edge.to_node_id]", back_populates="to_node", cascade="all, delete-orphan")
     execution_inputs = relationship("ExecutionInput", back_populates="node")
     execution_outputs = relationship("ExecutionOutput", back_populates="node")
 
 
 class Edge(BaseModel):
+    """Workflow edges defining node connections and execution flow"""
     __prefix__ = "ED"
     __tablename__ = 'edges'
     __table_args__ = (
-        CheckConstraint('from_node_id != to_node_id', name='_edge_no_self_loop'),
+        CheckConstraint('from_node_id != to_node_id', name='_edge_no_self_loop'),  
         UniqueConstraint('workflow_id', 'from_node_id', 'to_node_id', 'condition_type', name='_workflow_edge_unique'),
     )
 
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
+    # Relationships - Parent workflow and connected nodes
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
     from_node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
     to_node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
 
+    # Edge configuration - Conditional execution
     condition_type = Column(Enum(ConditionType), default=ConditionType.SUCCESS, nullable=False)
 
+    # Relationships
     workflow = relationship("Workflow", back_populates="edges")
-    from_node = relationship("Node", foreign_keys=[from_node_id], back_populates="outgoing_edges")
-    to_node = relationship("Node", foreign_keys=[to_node_id], back_populates="incoming_edges")
+    from_node = relationship("Node", foreign_keys="[Edge.from_node_id]", back_populates="outgoing_edges")
+    to_node = relationship("Node", foreign_keys="[Edge.to_node_id]", back_populates="incoming_edges")
 
 
 class Execution(BaseModel):
+    """Workflow execution instances with comprehensive tracking"""
     __prefix__ = "EX"
     __tablename__ = 'executions'
-    
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True)
-    correlation_id = Column(String(50), nullable=True)
 
-    status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Relationships - Parent workflow and trigger
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
+    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True)
+    correlation_id = Column(String(50), nullable=True, index=True)
+
+    # Execution status and timing
+    status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False, index=True)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     ended_at = Column(DateTime, nullable=True)
 
+    # Node execution tracking - Progress monitoring
     pending_nodes = Column(Integer, default=0, nullable=False)
     running_nodes = Column(Integer, default=0, nullable=False)
     executed_nodes = Column(Integer, default=0, nullable=False)
 
-    trigger_data = Column(JSON, default=dict, nullable=False)
-    results = Column(JSON, default=dict, nullable=False)
+    # Execution data - Input and output
+    trigger_data = Column(JSON, default=lambda: {}, nullable=False)
+    results = Column(JSON, default=lambda: {}, nullable=False)
 
+    # Relationships
     workflow = relationship("Workflow", back_populates="executions")
     trigger = relationship("Trigger", back_populates="executions")
     execution_inputs = relationship("ExecutionInput", back_populates="execution", cascade="all, delete-orphan")
     execution_outputs = relationship("ExecutionOutput", back_populates="execution", cascade="all, delete-orphan")
+    user_roles = relationship("UserExecutionRole", back_populates="execution", cascade="all, delete-orphan")
 
 
 class ExecutionInput(BaseModel):
+    """Node execution input parameters and scheduling"""
     __prefix__ = "EI"
     __tablename__ = 'execution_inputs'
-    __table_args__ = (
-        UniqueConstraint('execution_id', 'node_id', name='_execution_input_unique'),
-    )
 
-    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    # Relationships - Parent execution and workflow
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
-    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True, index=True)
+    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='SET NULL'), nullable=True)
 
+    # Scheduling parameters - Execution order and priority
     dependency_count = Column(Integer, default=0, nullable=False)
     priority = Column(Integer, default=0, nullable=False)
     wait_factor = Column(Integer, default=0, nullable=False)
 
+    # Node execution data - Parameters and script information
     node_name = Column(String(100), nullable=False)
-    node_params = Column(JSON, default=dict, nullable=False)
+    node_params = Column(JSON, default=lambda: {}, nullable=False)
     script_name = Column(String(100), nullable=True)
     script_path = Column(Text, nullable=True)
 
+    # Relationships
     execution = relationship("Execution", back_populates="execution_inputs")
-    workflow = relationship("Workflow")
+    workflow = relationship("Workflow", back_populates="execution_inputs")
     node = relationship("Node", back_populates="execution_inputs")
-    trigger = relationship("Trigger", back_populates="execution_inputs")
+
+    @property
+    def computed_priority(self):
+        """Calculate final priority considering wait factor"""
+        return self.priority + (self.wait_factor * 10)
 
 
 class ExecutionOutput(BaseModel):
+    """Node execution results and performance tracking"""
     __prefix__ = "EO"
     __tablename__ = 'execution_outputs'
-    __table_args__ = (
-        UniqueConstraint('execution_id', 'node_id', name='_execution_output_unique'),
-    )
 
-    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False)
+    # Relationships - Parent execution and workflow
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='CASCADE'), nullable=False)
+    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='SET NULL'), nullable=True)
 
-    status = Column(Enum(ExecutionOutputStatus), nullable=False)
-    result_data = Column(JSON, nullable=True, default=dict)
+    # Execution results - Status and output data
+    status = Column(Enum(ExecutionOutputStatus), nullable=False, index=True)
+    result_data = Column(JSON, nullable=True, default=lambda: {})
 
+    # Performance tracking - Timing and duration
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+    # Relationships
     execution = relationship("Execution", back_populates="execution_outputs")
-    workflow = relationship("Workflow")
+    workflow = relationship("Workflow", back_populates="execution_outputs")
     node = relationship("Node", back_populates="execution_outputs")
+
+    @property
+    def duration(self):
+        """Calculate execution duration in seconds"""
+        if self.execution_time:
+            return self.execution_time
+        if self.ended_at and self.started_at:
+            return (self.ended_at - self.started_at).total_seconds()
+        return None
 
 
 class Trigger(BaseModel):
+    """Workflow triggers for automated execution"""
     __prefix__ = "TR"
     __tablename__ = 'triggers'
-    __table_args__ = (UniqueConstraint('workflow_id', 'name', name='_workflow_trigger_name_unique'),)
-     
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)    
-    name = Column(String(100), nullable=False)    
-    description = Column(Text, nullable=True)    
-    trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
-    config = Column(JSON, default=dict, nullable=False)
-    input_mapping = Column(JSON, default=dict, nullable=True)
+
+    # Relationships - Parent workflow
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
     
+    # Trigger configuration - Basic information
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
+    config = Column(JSON, default=lambda: {}, nullable=False)
+    input_mapping = Column(JSON, default=lambda: {}, nullable=True)
+
+    # Status and scheduling - Execution control
+    is_enabled = Column(Boolean, default=True, nullable=False, index=True)
+    last_triggered_at = Column(DateTime, nullable=True, index=True)
+    trigger_count = Column(Integer, default=0, nullable=False)
+
+    # Relationships
     workflow = relationship("Workflow", back_populates="triggers")
     executions = relationship("Execution", back_populates="trigger")
     execution_inputs = relationship("ExecutionInput", back_populates="trigger")
+
+
+class User(BaseModel):
+    """User accounts with authentication and access control"""
+    __prefix__ = "US"
+    __tablename__ = 'users'
+    __table_args__ = (
+        UniqueConstraint('username', name='_user_username_unique'),
+        UniqueConstraint('email', name='_user_email_unique'),
+        CheckConstraint('length(username) >= 3', name='_username_min_length'),
+        CheckConstraint('length(username) <= 50', name='_username_max_length'),
+    )
+
+    # Basic user information
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    name = Column(String(100), nullable=True)
+    surname = Column(String(100), nullable=True)
+    email = Column(String(100), nullable=True, unique=True, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    country_code = Column(String(2), nullable=True)
+    phone_number = Column(String(20), nullable=True)
+    plan = Column(Boolean, default=False, nullable=False)
+
+    # Account status - User state management
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    is_locked = Column(Boolean, default=False, nullable=False)
+
+    # Security - Authentication and access control
+    last_login_at = Column(DateTime, nullable=True, index=True)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    password_changed_at = Column(DateTime, nullable=True)
+
+    # Verification - Email and password reset
+    email_verified_at = Column(DateTime, nullable=True)
+    verification_token = Column(String(100), nullable=True)
+    reset_token = Column(String(100), nullable=True)
+    reset_token_expires_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    owned_workflows = relationship("Workflow", foreign_keys="[Workflow.owner_id]", back_populates="owner")
+    approved_scripts = relationship("Script", foreign_keys="[Script.approved_by]", back_populates="approver")
+    workflow_roles = relationship("UserWorkflowRole", foreign_keys="[UserWorkflowRole.user_id]", back_populates="user", cascade="all, delete-orphan")
+    envar_roles = relationship("UserEnvarRole", foreign_keys="[UserEnvarRole.user_id]", back_populates="user", cascade="all, delete-orphan")
+    file_roles = relationship("UserFileRole", foreign_keys="[UserFileRole.user_id]", back_populates="user", cascade="all, delete-orphan")
+    execution_roles = relationship("UserExecutionRole", foreign_keys="[UserExecutionRole.user_id]", back_populates="user", cascade="all, delete-orphan")
+    api_keys = relationship("ApiKey", foreign_keys="[ApiKey.user_id]", back_populates="user", cascade="all, delete-orphan")
+    auth_sessions = relationship("AuthSession", foreign_keys="[AuthSession.user_id]", back_populates="user", cascade="all, delete-orphan")
+
+
+class Permission(BaseModel):
+    """System permissions for role-based access control"""
+    __prefix__ = "PM"
+    __tablename__ = 'permissions'
+
+    # Permission definition - Access control rules
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    endpoint = Column(String(100), nullable=True, index=True)
+    action = Column(String(100), nullable=True)
+    required_role = Column(String(50), nullable=False, index=True)
+    required_plan = Column(Boolean, default=False, nullable=False)
+
+
+class UserWorkflowRole(BaseModel):
+    """User roles for workflow access control"""
+    __prefix__ = "UW"
+    __tablename__ = 'user_workflow_roles'
+
+    # Relationships - User and workflow
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(String(50), nullable=False, index=True)
+
+    # Access control - Role assignment tracking
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys="[UserWorkflowRole.user_id]", back_populates="workflow_roles")
+    workflow = relationship("Workflow", back_populates="user_roles")
+
+
+class UserEnvarRole(BaseModel):
+    """User roles for environment variable access control"""
+    __prefix__ = "UE"
+    __tablename__ = 'user_envar_roles'
+
+    # Relationships - User and environment variable
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    envar_id = Column(String(20), ForeignKey('environment_variables.id', ondelete='CASCADE'), nullable=False,
+                      index=True)
+    role = Column(String(50), nullable=False, index=True)
+
+    # Access control - Role assignment tracking
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys="[UserEnvarRole.user_id]", back_populates="envar_roles")
+    environment_variable = relationship("EnvironmentVariable", back_populates="user_roles")
+    
+
+class UserFileRole(BaseModel):
+    """User roles for file upload access control"""
+    __prefix__ = "UF"
+    __tablename__ = 'user_file_roles'
+
+    # Relationships - User and file upload
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    file_id = Column(String(20), ForeignKey('file_uploads.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(String(50), nullable=False, index=True)
+
+    # Access control - Role assignment tracking
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys="[UserFileRole.user_id]", back_populates="file_roles")
+    file_upload = relationship("FileUpload", back_populates="user_roles")
+    
+
+class UserExecutionRole(BaseModel):
+    """User roles for execution access control"""
+    __prefix__ = "UX"
+    __tablename__ = 'user_execution_roles'
+
+    # Relationships - User and execution
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(String(50), nullable=False, index=True)
+
+    # Access control - Role assignment tracking
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys="[UserExecutionRole.user_id]", back_populates="execution_roles")
+    execution = relationship("Execution", back_populates="user_roles")
+
+
+class ApiKey(BaseModel):
+    """API keys for programmatic access with rate limiting and scope control"""
+    __prefix__ = "AK"
+    __tablename__ = 'api_keys'
+
+    # Relationships - Owner user
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Key information
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    key_hash = Column(String(255), nullable=False, unique=True, index=True)  # Hashed API key
+    key_prefix = Column(String(20), nullable=False)  # First few characters for identification
+    
+    # Access control - Permissions and scopes
+    scopes = Column(JSON, default=lambda: [], nullable=False)  # List of allowed scopes/permissions
+    allowed_ips = Column(JSON, default=lambda: [], nullable=False)  # IP whitelist (empty = all IPs)
+    
+    # Status and lifecycle
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    is_revoked = Column(Boolean, default=False, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    revocation_reason = Column(Text, nullable=True)
+    
+    # Expiration - Time-based access control
+    expires_at = Column(DateTime, nullable=True, index=True)
+    
+    # Usage tracking - Statistics and monitoring
+    last_used_at = Column(DateTime, nullable=True, index=True)
+    last_used_ip = Column(String(45), nullable=True)  # IPv6 max length
+    total_requests = Column(Integer, default=0, nullable=False)
+    
+    # Rate limiting - Request throttling
+    rate_limit_per_hour = Column(Integer, nullable=True)  # Requests per hour limit
+    rate_limit_per_day = Column(Integer, nullable=True)  # Requests per day limit
+    current_hour_requests = Column(Integer, default=0, nullable=False)
+    current_day_requests = Column(Integer, default=0, nullable=False)
+    rate_limit_reset_at = Column(DateTime, nullable=True)
+    
+    # Metadata
+    user_agent = Column(String(500), nullable=True)  # Last used user agent
+
+    # Relationships
+    user = relationship("User", foreign_keys="[ApiKey.user_id]", back_populates="api_keys")
+
+
+class AuthSession(BaseModel):
+    """Authentication sessions holding both access and refresh tokens as a pair"""
+    __prefix__ = "AS"
+    __tablename__ = 'auth_sessions'
+    __table_args__ = (
+        UniqueConstraint('access_token_jti', name='_access_token_jti_unique'),
+        UniqueConstraint('refresh_token_jti', name='_refresh_token_jti_unique'),
+    )
+
+    # Relationships - Owner user
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Access Token - Short-lived token for API access
+    access_token_jti = Column(String(100), nullable=False, unique=True, index=True)
+    access_token_created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    access_token_expires_at = Column(DateTime, nullable=False, index=True)
+    access_token_last_used_at = Column(DateTime, nullable=True)
+    
+    # Refresh Token - Long-lived token for obtaining new access tokens
+    refresh_token_jti = Column(String(100), nullable=False, unique=True, index=True)
+    refresh_token_created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    refresh_token_expires_at = Column(DateTime, nullable=False, index=True)
+    refresh_token_last_used_at = Column(DateTime, nullable=True)
+
+    # Revocation - Session invalidation
+    is_revoked = Column(Boolean, default=False, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    revocation_reason = Column(Text, nullable=True)
+    
+    # Session tracking - Device and location information
+    device_name = Column(String(100), nullable=True)  # e.g., 'iPhone 13', 'Chrome on Windows'
+    device_type = Column(String(50), nullable=True)  # 'mobile', 'desktop', 'tablet', 'api'
+    user_agent = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv6 max length
+
+    # Geographic information
+    country = Column(String(2), nullable=True)  # ISO country code
+    city = Column(String(100), nullable=True)
+    
+    # Usage statistics
+    total_requests = Column(Integer, default=0, nullable=False)
+    last_activity_at = Column(DateTime, nullable=True, index=True)
+    
+    # Relationships
+    user = relationship("User", foreign_keys="[AuthSession.user_id]", back_populates="auth_sessions")
+
+
+# Event listeners for optimistic locking
+@event.listens_for(BaseModel, 'before_update', propagate=True)
+def receive_before_update(mapper, connection, target):  # pylint: disable=unused-argument
+    """Increment version number on update for optimistic locking"""
+    # mapper and connection are required by SQLAlchemy event listener signature
+    _ = mapper, connection  # Mark as intentionally unused
+    # Increment version for optimistic locking (prevents concurrent modification conflicts)
+    target.version_number += 1

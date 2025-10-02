@@ -1,9 +1,0 @@
-Miniflow Proje Mimarisi
-
-Verinin Yolu
-1. API Endpoint :: Routes
-2. Aksiyon Katmanı :: Alınacak aksiyonlar, dosya işlemleri, veri tabanı işlemler,i ,etc
-3. Orkestrasyon Katmanı :: CRUD operasyonlarını yöneten HIGH level interface, veritabanı validasyonları vs.
-4. CRUD :: Modüle özel BaseCRUD'dan ğretilmiş veri tabanı katmanı
-
-
