@@ -1,9 +1,8 @@
 import uuid
-import enum
 from typing import cast, Iterable, Any
 from datetime import datetime, timezone
-from sqlalchemy.orm import declarative_base, relationship, validates
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint, Index, event
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint, event
 
 from .enums import *
 
@@ -438,15 +437,6 @@ class ExecutionOutput(BaseModel):
     workflow = relationship("Workflow", back_populates="execution_outputs")
     node = relationship("Node", back_populates="execution_outputs")
 
-    @property
-    def duration(self):
-        """Calculate execution duration in seconds"""
-        if self.execution_time:
-            return self.execution_time
-        if self.ended_at and self.started_at:
-            return (self.ended_at - self.started_at).total_seconds()
-        return None
-
 
 class Trigger(BaseModel):
     """Workflow triggers for automated execution"""
@@ -471,7 +461,6 @@ class Trigger(BaseModel):
     # Relationships
     workflow = relationship("Workflow", back_populates="triggers")
     executions = relationship("Execution", back_populates="trigger")
-    execution_inputs = relationship("ExecutionInput", back_populates="trigger")
 
 
 class User(BaseModel):
@@ -512,7 +501,6 @@ class User(BaseModel):
     reset_token_expires_at = Column(DateTime, nullable=True)
 
     # Relationships
-    owned_workflows = relationship("Workflow", foreign_keys="[Workflow.owner_id]", back_populates="owner")
     approved_scripts = relationship("Script", foreign_keys="[Script.approved_by]", back_populates="approver")
     workflow_roles = relationship("UserWorkflowRole", foreign_keys="[UserWorkflowRole.user_id]", back_populates="user", cascade="all, delete-orphan")
     envar_roles = relationship("UserEnvarRole", foreign_keys="[UserEnvarRole.user_id]", back_populates="user", cascade="all, delete-orphan")
@@ -532,8 +520,8 @@ class Permission(BaseModel):
     description = Column(Text, nullable=True)
     endpoint = Column(String(100), nullable=True, index=True)
     action = Column(String(100), nullable=True)
-    required_role = Column(String(50), nullable=False, index=True)
-    required_plan = Column(Boolean, default=False, nullable=False)
+    required_role = Column(Enum(Roles), nullable=False, index=True)
+    required_plan = Column(Enum(Plans), nullable=False)
 
 
 class UserWorkflowRole(BaseModel):
@@ -544,7 +532,7 @@ class UserWorkflowRole(BaseModel):
     # Relationships - User and workflow
     user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(String(50), nullable=False, index=True)
+    role = Column(Enum(Roles), nullable=False, index=True)
 
     # Access control - Role assignment tracking
     granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -562,9 +550,8 @@ class UserEnvarRole(BaseModel):
 
     # Relationships - User and environment variable
     user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    envar_id = Column(String(20), ForeignKey('environment_variables.id', ondelete='CASCADE'), nullable=False,
-                      index=True)
-    role = Column(String(50), nullable=False, index=True)
+    envar_id = Column(String(20), ForeignKey('environment_variables.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(Enum(Roles), nullable=False, index=True)
 
     # Access control - Role assignment tracking
     granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -583,7 +570,7 @@ class UserFileRole(BaseModel):
     # Relationships - User and file upload
     user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     file_id = Column(String(20), ForeignKey('file_uploads.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(String(50), nullable=False, index=True)
+    role = Column(Enum(Roles), nullable=False, index=True)
 
     # Access control - Role assignment tracking
     granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -602,7 +589,7 @@ class UserExecutionRole(BaseModel):
     # Relationships - User and execution
     user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(String(50), nullable=False, index=True)
+    role = Column(Enum(Roles), nullable=False, index=True)
 
     # Access control - Role assignment tracking
     granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
