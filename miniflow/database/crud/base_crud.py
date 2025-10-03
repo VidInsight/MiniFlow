@@ -1,14 +1,56 @@
-from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
-from sqlalchemy import select, func, delete, update
-from sqlalchemy.orm import DeclarativeMeta, Session, joinedload, selectinload
+from typing import Any, Dict, Generic, List, Optional, TypeVar, cast, Callable
+from sqlalchemy.orm import DeclarativeMeta, Session, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
+from sqlalchemy import select, func, exists
+from functools import wraps
 
 from miniflow.core.logger import get_logger
 from miniflow.core.exceptions import ValidationError, DatabaseQueryError, ErrorContext, ErrorSeverity
 
-
 ModelType = TypeVar("ModelType", bound=DeclarativeMeta)
+T = TypeVar('T')
+
+# Maximum allowed limit for pagination
+MAX_QUERY_LIMIT = 1000
+
+def handle_crud_errors(operation_name: str = None):
+    """Decorator for CRUD operation error management"""
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(self, session: Session, *args, **kwargs) -> T:
+            op_name = operation_name or func.__name__
+            data = kwargs.copy()
+            data.pop('session', None)
+            try:
+                result = func(self, session, *args, **kwargs)
+                return result
+            except (ValidationError, DatabaseQueryError):
+                # Re-raise our custom exceptions without wrapping
+                raise
+            except SQLAlchemyError as e:
+                context = ErrorContext(operation=op_name, component=self.model_name, additional_info={"data": data})
+                self.logger.error(f"Database error in {op_name} for {self.model_name}: {str(e)}")
+                raise DatabaseQueryError(
+                    f"Database Error (via BaseCRUD {op_name}): {self.model_name}",
+                    context=context,
+                    severity=ErrorSeverity.HIGH,
+                    source_error=e
+                )
+            except Exception as e:
+                context = ErrorContext(operation=op_name, component=self.model_name, additional_info={"data": data})
+                self.logger.error(f"Unexpected error in {op_name} for {self.model_name}: {str(e)}")
+                raise DatabaseQueryError(
+                    f"CRUD Error (via BaseCRUD {op_name}): {self.model_name}",
+                    context=context,
+                    severity=ErrorSeverity.HIGH,
+                    source_error=e
+                )
+
+        return wrapper
+
+    return decorator
 
 
 class BaseCRUD(Generic[ModelType]):
@@ -17,7 +59,8 @@ class BaseCRUD(Generic[ModelType]):
     Provides type-safe CRUD operations with increased performance.
 
     Note: This class works with the DatabaseEngine's session context management framework.
-    Session rollbacks are handled at the engine level.
+    Session rollbacks are handled at the engine level. Never call session.commit() within
+    these methods - use session.flush() to persist changes within the transaction.
     """
 
     def __init__(self, model: type[ModelType]):
@@ -25,354 +68,332 @@ class BaseCRUD(Generic[ModelType]):
         self.model_name = model.__name__
         self.logger = get_logger("database_orchestration")
 
-    def _create_error_context(self, operation: str, **kwargs) -> ErrorContext:
-        return ErrorContext(
-            operation=operation,
-            component=self.__class__.__name__,
-            additional_info=kwargs
-        )
-
-    def _validate_required_fields(self, required_fields: List[str], data: Dict[str, Any]) -> None:
-        missing_fields = []
-        for field in required_fields:
-            if field not in data or data[field] is None or (isinstance(data[field], str) and not data[field].strip()):
-                missing_fields.append(field)
-        
+    def _validate_required_fields_in_kwargs(self, required_fields: List[str], kwargs: Dict[str, Any]) -> None:
+        """Validate that all required fields are present in kwargs"""
+        missing_fields = [field for field in required_fields if field not in kwargs or kwargs[field] is None]
         if missing_fields:
-            context = ErrorContext(operation="validate_required_fields", additional_info={"missing_fields": missing_fields})
-            raise ValidationError(f"Missing required fields: {missing_fields}", context=context, severity=ErrorSeverity.HIGH)
+            context = ErrorContext(
+                operation="validate_required_fields",
+                component=self.model_name,
+                additional_info={"missing_fields": missing_fields}
+            )
+            raise ValidationError(
+                f"Missing required fields for {self.model_name}: {missing_fields}",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
 
-    def _validate_protected_fields(self, protected_fields: List[str], data: Dict[str, Any]) -> Dict[str, Any]:
-        clean_data = {}
-        for key, value in data.items():
-            if key not in protected_fields:
-                clean_data[key] = value
-            else:
-                self.logger.warning(f"Removing protected field '{key}' from {self.model_name} data")
-        return clean_data
+    def _validate_no_extra_fields(self, allowed_fields: List[str], kwargs: Dict[str, Any]) -> None:
+        """Validate that no extra fields are present in kwargs"""
+        extra_fields = [field for field in kwargs if field not in allowed_fields]
+        if extra_fields:
+            context = ErrorContext(
+                operation="validate_no_extra_fields",
+                component=self.model_name,
+                additional_info={"extra_fields": extra_fields}
+            )
+            raise ValidationError(
+                f"Extra fields not allowed for {self.model_name}: {extra_fields}",
+                context=context,
+                severity=ErrorSeverity.MEDIUM
+            )
 
-    def _validate_request_data(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
-        valid_fields = {}
-        invalid_fields = []
-        
-        for key, value in data.items():
-            if hasattr(self.model, key):
-                valid_fields[key] = value
-            else:
-                invalid_fields.append(key)
-                self.logger.warning(f"Invalid field '{key}' for {self.model_name}")
-        
-        return valid_fields, invalid_fields
+    @handle_crud_errors(operation_name="CREATE")
+    def _create(self, session: Session, **kwargs) -> ModelType:
+        """
+        Create new database record.
 
-    def _create(self, session: Session, **model_data) -> ModelType:
-        """Create new database record with automatic field validation."""
-        if not model_data:
-            context = self._create_error_context("DB query: create", data_keys=[])
-            raise ValidationError(f"No data provided for {self.model_name} creation in BaseCRUD create", context=context, severity=ErrorSeverity.HIGH)
+        Args:
+            session: SQLAlchemy session
+            **kwargs: Field values for the new record
 
-        # Filter out invalid fields that don't exist in the model
-        valid_data = {}
-        invalid_fields = []
-        for field, value in model_data.items():
-            if hasattr(self.model, field):
-                valid_data[field] = value
-            else:
-                invalid_fields.append(field)
-                self.logger.warning(f"Ignoring invalid field '{field}' for {self.model_name}")
+        Returns:
+            Created model instance
+        """
+        if not kwargs:
+            context = ErrorContext(operation="create", component=self.model_name)
+            raise ValidationError("No data provided for creation", context=context, severity=ErrorSeverity.HIGH)
 
-        # Create Action
-        try:
-            self.logger.debug(f"Creating {self.model_name} with data: {list(valid_data.keys())}")
-            db_object = self.model(**valid_data)
-            session.add(db_object)
-            session.flush()
-            self.logger.info(f"Successfully created {self.model_name} with ID: {getattr(db_object, 'id', 'N/A')}")
-            return db_object
+        db_object = cast(ModelType, self.model(**kwargs))
+        session.add(db_object)
+        session.flush()
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("create", data_keys=list(valid_data.keys()), invalid_fields=invalid_fields)
-            self.logger.error(f"Database error creating {self.model_name}: {str(e)}")
-            raise DatabaseQueryError(f"Object Creation Error (via BaseCRUD _create): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        return db_object
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("create", data_keys=list(valid_data.keys()), invalid_fields=invalid_fields)
-            self.logger.error(f"Unexpected error creating {self.model_name}: {str(e)}")
-            raise DatabaseQueryError(f"Object Creation Error (via BaseCRUD _create): {self.model_name}", context=context, severity=ErrorSeverity.CRITICAL, source_error=e)
+    @handle_crud_errors(operation_name="GET_BY_ID")
+    def _get_by_id(self, session: Session, record_id: str, *, relationships: Optional[List[str]] = None, load_all_relationships: bool = False) -> Optional[ModelType]:
+        """
+        Get single record by ID.
 
-    def _get_by_id(self, session: Session, record_id: str, include_relationships: bool = False) -> Optional[ModelType]:
-        """Find single record by primary key ID with optional relationship loading."""
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to retrieve
+            relationships: List of specific relationship names to load
+            load_all_relationships: If True, load all relationships (overrides relationships param)
 
-        # Find Action
-        try:
-            self.logger.debug(f"Finding {self.model_name} by ID: {record_id} (include_relationships={include_relationships})")
+        Returns:
+            Model instance or None if not found
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="get_by_id", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided", context=context, severity=ErrorSeverity.MEDIUM)
 
-            if include_relationships:
-                # Load with relationships using selectinload
-                query = select(self.model).where(self.model.id == record_id)
-                
-                # Add selectinload for all relationships
+        if not relationships and not load_all_relationships:
+            db_object = cast(Optional[ModelType], session.get(self.model, record_id))
+        else:
+            query = select(self.model).where(self.model.id == record_id)
+
+            if load_all_relationships:
                 for relationship_name in self.model.__mapper__.relationships.keys():
                     query = query.options(selectinload(getattr(self.model, relationship_name)))
-                
-                result = session.execute(query).scalar_one_or_none()
-            else:
-                result = session.get(self.model, record_id)
-            
-            if result:
-                self.logger.debug(f"Found {self.model_name} with ID: {record_id}")
-                return result
-            else:
-                self.logger.debug(f"No {self.model_name} found with ID: {record_id}")
-                return None
+            elif relationships:
+                for rel_name in relationships:
+                    if rel_name in self.model.__mapper__.relationships.keys():
+                        query = query.options(selectinload(getattr(self.model, rel_name)))
+                    else:
+                        self.logger.warning(
+                            f"Relationship '{rel_name}' not found in {self.model_name}",
+                            extra={"relationship": rel_name, "model": self.model_name}
+                        )
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("find_by_id", record_id=record_id)
-            self.logger.error(f"Database error finding {self.model_name} by ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _get_by_id): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+            db_object = cast(Optional[ModelType], session.execute(query).scalar_one_or_none())
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("find_by_id", record_id=record_id)
-            self.logger.error(f"Unexpected error finding {self.model_name} by ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _get_by_id): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        return db_object if db_object else None
 
-    def _update(self, session: Session, record_id: str, **model_data) -> ModelType:
-        """Update existing record with automatic timestamp and field validation."""
-        if not model_data:
-            context = self._create_error_context("update", record_id=record_id, data_keys=[])
-            raise ValidationError(f"No data provided for {self.model_name} update", context=context, severity=ErrorSeverity.MEDIUM)
+    @handle_crud_errors(operation_name="UPDATE")
+    def _update(self, session: Session, record_id: str, **kwargs) -> ModelType:
+        """
+        Update existing record by ID.
+
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to update
+            **kwargs: Fields to update with their new values
+
+        Returns:
+            Updated model instance
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided for update", context=context, severity=ErrorSeverity.MEDIUM)
+
+        if not kwargs:
+            context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("No data provided for update", context=context, severity=ErrorSeverity.HIGH)
 
         db_object = self._get_by_id(session, record_id)
-        if db_object is None:
-            context = self._create_error_context("update", record_id=record_id, data_keys=list(model_data.keys()))
-            raise DatabaseQueryError(f"Object Update Error: No such {self.model_name} record with ID {record_id}", context=context, severity=ErrorSeverity.HIGH)
+        if not db_object:
+            context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
+            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for update",context=context,severity=ErrorSeverity.MEDIUM)
 
-        # Add timestamp if model supports it
-        if hasattr(db_object, 'updated_at'):
-            model_data['updated_at'] = datetime.now(timezone.utc)
-
-        # Filter out invalid fields that don't exist in the model
-        valid_data = {}
-        invalid_fields = []
-        for field, value in model_data.items():
-            if hasattr(self.model, field):
-                valid_data[field] = value
+        for key, value in kwargs.items():
+            if hasattr(db_object, key):
+                setattr(db_object, key, value)
             else:
-                invalid_fields.append(field)
-                self.logger.warning(f"Ignoring invalid field '{field}' for {self.model_name} update")
+                self.logger.warning(f"Attempted to update non-existent field '{key}' on {self.model_name}")
 
-        updated_fields = []
-        try:
-            self.logger.debug(f"Updating {self.model_name} ID {record_id} with data: {list(valid_data.keys())}")
-            for field, value in valid_data.items():
-                setattr(db_object, field, value)
-                updated_fields.append(field)
-            self.logger.info(f"Successfully updated {self.model_name} ID {record_id}, fields: {updated_fields}")
-            return db_object
+        session.add(db_object)
+        session.flush()
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("update", record_id=record_id, updated_fields=updated_fields, invalid_fields=invalid_fields)
-            self.logger.error(f"Database error updating {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Update Error (via BaseCRUD _update): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        return db_object
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("update", record_id=record_id, updated_fields=updated_fields, invalid_fields=invalid_fields)
-            self.logger.error(f"Unexpected error updating {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Update Error (via BaseCRUD _update): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+    @handle_crud_errors(operation_name="DELETE")
+    def _delete(self, session: Session, record_id: str) -> None:
+        """
+        Permanently delete record by ID.
 
-    def _delete(self, session: Session, record_id: str) -> ModelType:
-        """Delete record by ID and return the deleted object."""
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to delete
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="delete", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided for deletion", context=context, severity=ErrorSeverity.MEDIUM)
+
         db_object = self._get_by_id(session, record_id)
-        if db_object is None:
-            context = self._create_error_context("delete", record_id=record_id)
-            raise DatabaseQueryError(f"Object Deletion Error: No such {self.model_name} record with ID {record_id}", context=context, severity=ErrorSeverity.HIGH)
+        if not db_object:
+            context = ErrorContext(operation="delete", component=self.model_name, additional_info={"id": record_id})
+            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for deletion",context=context,severity=ErrorSeverity.MEDIUM)
 
-        try:
-            self.logger.debug(f"Deleting {self.model_name} ID {record_id}")
-            session.delete(db_object)
-            self.logger.info(f"Successfully deleted {self.model_name} ID {record_id}")
-            return db_object
+        session.delete(db_object)
+        session.flush()
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("delete", record_id=record_id)
-            self.logger.error(f"Database error deleting {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Deletion Error (via BaseCRUD _delete): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+    @handle_crud_errors(operation_name="SOFT_DELETE")
+    def _soft_delete(self, session: Session, record_id: str, user_id: str) -> None:
+        """
+        Soft delete record by ID (marks as deleted without removing from database).
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("delete", record_id=record_id)
-            self.logger.error(f"Unexpected error deleting {self.model_name} ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Deletion Error (via BaseCRUD _delete): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to soft delete
+            user_id: ID of the user performing the deletion
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided for soft deletion", context=context, severity=ErrorSeverity.MEDIUM)
 
+        if not user_id or not isinstance(user_id, str):
+            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"user_id": user_id})
+            raise ValidationError("Invalid user ID provided for soft deletion", context=context, severity=ErrorSeverity.MEDIUM)
+
+        db_object = self._get_by_id(session, record_id)
+        if not db_object:
+            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
+            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for soft deletion",context=context,severity=ErrorSeverity.MEDIUM)
+
+        if hasattr(db_object, 'is_deleted') and hasattr(db_object, 'deleted_at') and hasattr(db_object, 'deleted_by'):
+            setattr(db_object, 'is_deleted', True)
+            setattr(db_object, 'deleted_at', datetime.now(timezone.utc))
+            setattr(db_object, 'deleted_by', user_id)
+            session.add(db_object)
+            session.flush()
+        else:
+            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError(f"{self.model_name} does not support soft deletion (missing required fields: is_deleted, deleted_at, deleted_by)",context=context,severity=ErrorSeverity.HIGH)
+
+    @handle_crud_errors(operation_name="RESTORE")
+    def _restore(self, session: Session, record_id: str) -> None:
+        """
+        Restore soft-deleted record by ID.
+
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to restore
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided for restoration", context=context, severity=ErrorSeverity.MEDIUM)
+
+        db_object = self._get_by_id(session, record_id)
+        if not db_object:
+            context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
+            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for restoration",context=context,severity=ErrorSeverity.MEDIUM)
+
+        if hasattr(db_object, 'is_deleted') and hasattr(db_object, 'deleted_at') and hasattr(db_object, 'deleted_by'):
+            setattr(db_object, 'is_deleted', False)
+            setattr(db_object, 'deleted_at', None)
+            setattr(db_object, 'deleted_by', None)
+            session.add(db_object)
+            session.flush()
+        else:
+            context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError(f"{self.model_name} does not support restoration (missing required fields: is_deleted, deleted_at, deleted_by)",context=context,severity=ErrorSeverity.HIGH)
+
+    @handle_crud_errors(operation_name="EXISTS")
     def _exists(self, session: Session, record_id: str) -> bool:
-        """Check if record exists by ID."""
+        """
+        Check if record exists by ID.
 
-        stmt = select(func.count(self.model.id)).where(self.model.id == record_id)
+        Args:
+            session: SQLAlchemy session
+            record_id: ID of the record to check
 
-        try:
-            self.logger.debug(f"Checking if {self.model_name} exists with ID: {record_id}")
-            result = session.execute(stmt).scalar_one() > 0
-            self.logger.debug(f"{self.model_name} ID {record_id} exists: {result}")
-            return result
+        Returns:
+            True if record exists, False otherwise
+        """
+        if not record_id or not isinstance(record_id, str):
+            context = ErrorContext(operation="exists", component=self.model_name, additional_info={"id": record_id})
+            raise ValidationError("Invalid ID provided for existence check", context=context, severity=ErrorSeverity.MEDIUM)
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("exists", record_id=record_id)
-            self.logger.error(f"Database error checking {self.model_name} existence ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Exists Error (via BaseCRUD _exists): {self.model_name}",context=context,severity=ErrorSeverity.HIGH,source_error=e)
+        query = select(exists().where(self.model.id == record_id))
+        result = session.execute(query).scalar()
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("exists", record_id=record_id)
-            self.logger.error(f"Unexpected error checking {self.model_name} existence ID {record_id}: {str(e)}")
-            raise DatabaseQueryError(f"Object Exists Error (via BaseCRUD _exists): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        return bool(result)
 
-    def _count(self, session: Session) -> int:
-        """Count total number of records in the table."""
-        stmt = select(func.count(self.model.id))
+    @handle_crud_errors(operation_name="GET_ALL")
+    def _get_all( self, session: Session, *, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, relationships: Optional[List[str]] = None, load_all_relationships: bool = False, **filters) -> List[ModelType]:
+        """
+        Get all records with pagination, filtering, and optional ordering.
 
-        try:
-            self.logger.debug(f"Counting {self.model_name} records")
-            result = session.execute(stmt).scalar_one()
-            self.logger.debug(f"Total {self.model_name} count: {result}")
-            return result
+        Args:
+            session: SQLAlchemy session
+            skip: Number of records to skip (offset)
+            limit: Maximum number of records to return
+            order_by: Field name to order by
+            order_desc: If True, order in descending order
+            include_deleted: If True, include soft-deleted records
+            relationships: List of specific relationship names to load
+            load_all_relationships: If True, load all relationships
+            **filters: Field equality filters
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("count")
-            self.logger.error(f"Database error counting {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Count Error (via BaseCRUD _count): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        Returns:
+            List of model instances
+        """
+        if skip < 0:
+            context = ErrorContext(operation="get_all", component=self.model_name, additional_info={"skip": skip})
+            raise ValidationError("Skip parameter must be non-negative", context=context, severity=ErrorSeverity.MEDIUM)
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("count")
-            self.logger.error(f"Unexpected error counting {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Count Error (via BaseCRUD _count): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        if limit <= 0:
+            context = ErrorContext(operation="get_all", component=self.model_name, additional_info={"limit": limit})
+            raise ValidationError("Limit parameter must be positive", context=context, severity=ErrorSeverity.MEDIUM)
 
-    def _get_all(self, session: Session, skip: int = 0, limit: int = 100, order_by: str = None) -> List[ModelType]:
-        """Get all records with pagination and optional ordering."""
-        limit = min(limit, 1000)  # Memory protection
-        stmt = select(self.model)
+        if limit > MAX_QUERY_LIMIT:
+            context = ErrorContext(operation="get_all", component=self.model_name, additional_info={"limit": limit})
+            raise ValidationError(f"Limit parameter exceeds maximum allowed value of {MAX_QUERY_LIMIT}",context=context,severity=ErrorSeverity.MEDIUM)
 
+        query = select(self.model)
+
+        # Filter out soft-deleted records unless explicitly requested
+        if not include_deleted and hasattr(self.model, 'is_deleted'):
+            query = query.where(getattr(self.model, 'is_deleted').is_(False))
+
+        # Apply custom filters
+        for key, value in filters.items():
+            if hasattr(self.model, key):
+                query = query.where(getattr(self.model, key) == value)
+            else:
+                self.logger.warning(f"Attempted to filter by non-existent field '{key}' on {self.model_name}",extra={"field": key, "model": self.model_name})
+
+        # Apply ordering
         if order_by:
             if hasattr(self.model, order_by):
-                order_column = getattr(self.model, order_by)
-                stmt = stmt.order_by(order_column)
+                order_field = getattr(self.model, order_by)
+                query = query.order_by(order_field.desc() if order_desc else order_field)
             else:
-                self.logger.warning(f"Invalid order_by field '{order_by}' for {self.model_name}, using default ID ordering")
-                stmt = stmt.order_by(self.model.id)
-        else:
-            stmt = stmt.order_by(self.model.id)  # Default ID ordering
+                self.logger.warning(f"Attempted to order by non-existent field '{order_by}' on {self.model_name}",extra={"field": order_by, "model": self.model_name})
 
-        stmt = stmt.offset(skip).limit(limit)
-
-        try:
-            self.logger.debug(f"Getting all {self.model_name} records: skip={skip}, limit={limit}, order_by={order_by}")
-            results = list(session.execute(stmt).scalars().all())
-            self.logger.debug(f"Retrieved {len(results)} {self.model_name} records")
-            return results
-
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("get_all", skip=skip, limit=limit, order_by=order_by)
-            self.logger.error(f"Database error getting all {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via Get All): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("get_all", skip=skip, limit=limit, order_by=order_by)
-            self.logger.error(f"Unexpected error getting all {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via Get All): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-    def _filter(self, session: Session, filters: Dict[str, Any], skip: int = 0, limit: int = 100, order_by_field: str = None) -> List[ModelType]:
-        """Filter records by field values with pagination and ordering - Optimized version."""
-
-        valid_filters = []
-        invalid_fields = []
-
-        limit = min(limit, 1000)
-        stmt = select(self.model)
-
-        # Loop for validation and query building
-        for field_name, field_value in filters.items():
-            if hasattr(self.model, field_name):
-                field_attr = getattr(self.model, field_name)
-                stmt = stmt.where(field_attr == field_value)
-                valid_filters.append(f"{field_name}={field_value}")
-            else:
-                invalid_fields.append(field_name)
-                raise ValidationError(f"Field '{field_name}' does not exist in {self.model_name}", context=self._create_error_context("filter", field_name=field_name), severity=ErrorSeverity.MEDIUM)
-
-        # Ordering logic
-        if order_by_field and hasattr(self.model, order_by_field):
-            stmt = stmt.order_by(getattr(self.model, order_by_field))
-        else:
-            # Default ordering only if no valid order_by_field
-            if not order_by_field or not hasattr(self.model, order_by_field):
-                if order_by_field:
-                    self.logger.warning(
-                        f"Invalid order_by_field '{order_by_field}' for {self.model_name}, using default ID ordering")
-                stmt = stmt.order_by(self.model.id)
+        # Load relationships if requested
+        if load_all_relationships:
+            for relationship_name in self.model.__mapper__.relationships.keys():
+                query = query.options(selectinload(getattr(self.model, relationship_name)))
+        elif relationships:
+            for rel_name in relationships:
+                if rel_name in self.model.__mapper__.relationships.keys():
+                    query = query.options(selectinload(getattr(self.model, rel_name)))
+                else:
+                    self.logger.warning(f"Relationship '{rel_name}' not found in {self.model_name}",extra={"relationship": rel_name, "model": self.model_name})
 
         # Apply pagination
-        if skip > 0 or limit < 1000:
-            stmt = stmt.offset(skip).limit(limit)
+        query = query.offset(skip).limit(limit)
 
-        try:
-            self.logger.debug(f"Filtering {self.model_name} records: {valid_filters}, skip={skip}, limit={limit}")
-            results = session.execute(stmt).scalars().all()
-            self.logger.debug(f"Filter returned {len(results)} {self.model_name} records")
-            return results
+        results = session.execute(query).scalars().all()
+        return list(results)
 
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("filter", valid_filters=valid_filters, invalid_fields=invalid_fields,skip=skip, limit=limit)
-            self.logger.error(f"Database error filtering {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _filter): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+    @handle_crud_errors(operation_name="COUNT")
+    def _count(self, session: Session, *, include_deleted: bool = False, **filters) -> int:
+        """
+        Count total records with optional filters.
 
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("filter", valid_filters=valid_filters, invalid_fields=invalid_fields,skip=skip, limit=limit)
-            self.logger.error(f"Unexpected error filtering {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _filter): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
+        Args:
+            session: SQLAlchemy session
+            include_deleted: If True, include soft-deleted records in count
+            **filters: Field equality filters
 
-    def _count_with_filter(self, session: Session, filters: Dict[str, Any]) -> int:
-        """Count records matching the specified filter criteria - Optimized version."""
-        valid_filters = []
-        invalid_fields = []
+        Returns:
+            Count of matching records
+        """
+        query = select(func.count()).select_from(self.model)
 
-        stmt = select(func.count(self.model.id))
+        # Filter out soft-deleted records unless explicitly requested
+        if not include_deleted and hasattr(self.model, 'is_deleted'):
+            query = query.where(getattr(self.model, 'is_deleted').is_(False))  
 
-        # Loop for validation and query building
-        for field_name, field_value in filters.items():
-            if hasattr(self.model, field_name):
-                field_attr = getattr(self.model, field_name)
-                stmt = stmt.where(field_attr == field_value)
-                valid_filters.append(f"{field_name}={field_value}")
+        # Apply custom filters
+        for key, value in filters.items():
+            if hasattr(self.model, key):
+                query = query.where(getattr(self.model, key) == value)
             else:
-                invalid_fields.append(field_name)
-                raise ValidationError(f"Field '{field_name}' does not exist in {self.model_name}", context=self._create_error_context("count_filtered", field_name=field_name), severity=ErrorSeverity.MEDIUM)
+                self.logger.warning(f"Attempted to filter by non-existent field '{key}' on {self.model_name}",extra={"field": key, "model": self.model_name})
 
-        try:
-            self.logger.debug(f"Counting filtered {self.model_name} records: {valid_filters}")
-            result = session.execute(stmt).scalar_one()
-            self.logger.debug(f"Filtered {self.model_name} count: {result}")
-            return result
-
-        # Database Error
-        except SQLAlchemyError as e:
-            context = self._create_error_context("count_filtered", valid_filters=valid_filters, invalid_fields=invalid_fields)
-            self.logger.error(f"Database error counting filtered {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _count_with_filter): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
-
-        # CRUD Error
-        except Exception as e:
-            context = self._create_error_context("filter", valid_filters=valid_filters, invalid_fields=invalid_fields, filters=filters)
-            self.logger.error(f"Unexpected error count filtering {self.model_name} records: {str(e)}")
-            raise DatabaseQueryError(f"Object Retrieval Error (via BaseCRUD _count_with_filter): {self.model_name}", context=context,severity=ErrorSeverity.HIGH, source_error=e)
+        result = session.execute(query).scalar()
+        return result or 0
