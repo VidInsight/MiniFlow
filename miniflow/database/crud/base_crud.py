@@ -98,6 +98,21 @@ class BaseCRUD(Generic[ModelType]):
                 severity=ErrorSeverity.MEDIUM
             )
 
+    def _validate_no_protected_fields(self, protected_fields: List[str], kwargs: Dict[str, Any]) -> None:
+        """Validate that no protected fields are being modified in kwargs"""
+        protected_attempts = [field for field in kwargs if field in protected_fields]
+        if protected_attempts:
+            context = ErrorContext(
+                operation="validate_no_protected_fields",
+                component=self.model_name,
+                additional_info={"protected_fields": protected_attempts}
+            )
+            raise ValidationError(
+                f"Attempted to modify protected fields for {self.model_name}: {protected_attempts}",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+
     @handle_crud_errors(operation_name="CREATE")
     def _create(self, session: Session, **kwargs) -> ModelType:
         """
