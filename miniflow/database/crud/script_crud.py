@@ -1,3 +1,4 @@
+import os
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -206,3 +207,15 @@ class ScriptCRUD(BaseCRUD[Script]):
         session.flush()
         
         return script
+
+    def _validate_script_existence(self, session: Session, record_id: str) -> bool:
+        """Validate that script record and physical file both exist."""
+        script_record = super()._get_by_id(session, record_id)
+        if not script_record:
+            context = ErrorContext(operation="script_existence_check",component=self.model_name,additional_info={'id': record_id})
+            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+
+        # Check if physical file exists
+        if not os.path.isfile(script_record.file_path):
+            return False
+        return True
