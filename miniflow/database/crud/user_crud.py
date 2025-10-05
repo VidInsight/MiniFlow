@@ -1,3 +1,4 @@
+import re
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -18,6 +19,131 @@ class UserCRUD(BaseCRUD[User]):
         self.protected_fields = {'hashed_password', 'failed_login_attempts', 'is_locked', 
                                 'last_login_at', 'email_verified_at', 'password_changed_at'}
 
+    # ========================================================================================= VALIDATION HELPERS =====
+    def _validate_username(self, username: str) -> str:
+        """Validate username format."""
+        if not username or not isinstance(username, str):
+            raise ValueError("Username must be a non-empty string")
+
+        username = username.strip()
+
+        if len(username) < 3:
+            raise ValueError(f"Username too short: {len(username)} chars (min 3)")
+
+        if len(username) > 50:
+            raise ValueError(f"Username too long: {len(username)} chars (max 50)")
+
+        # Allow only alphanumeric, underscore, and hyphen
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]+$', username):
+            raise ValueError("Username can only contain letters, numbers, underscore, and hyphen")
+
+        return username
+
+    def _validate_username_uniqueness(self, session: Session, username: str, exclude_id: Optional[str] = None):
+        """Validate that username is unique."""
+        query = session.query(self.model).filter(
+            and_(
+                self.model.username == username,
+                self.model.is_deleted == False
+            )
+        )
+
+        if exclude_id:
+            query = query.filter(self.model.id != exclude_id)
+
+        existing = query.first()
+
+        if existing:
+            context = ErrorContext(operation='validate_username_uniqueness', component=self.model_name,additional_info={'username': username, 'existing_id': existing.id})
+            raise ValidationError(f"Username '{username}' already exists", context=context, severity=ErrorSeverity.HIGH)
+
+    def _validate_email(self, email: str) -> str:
+        """Validate email format."""
+        if not email or not isinstance(email, str):
+            raise ValueError("Email must be a non-empty string")
+
+        email = email.strip().lower()
+
+        # Basic email validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            raise ValueError(f"Invalid email format: {email}")
+
+        return email
+
+    def _validate_email_uniqueness(self, session: Session, email: str, exclude_id: Optional[str] = None):
+        """Validate that email is unique."""
+        query = session.query(self.model).filter(
+            and_(
+                self.model.email == email,
+                self.model.is_deleted == False
+            )
+        )
+
+        if exclude_id:
+            query = query.filter(self.model.id != exclude_id)
+
+        existing = query.first()
+
+        if existing:
+            context = ErrorContext(operation='validate_email_uniqueness', component=self.model_name,
+                                   additional_info={'email': email, 'existing_id': existing.id})
+            raise ValidationError(f"Email '{email}' already exists",
+                                  context=context, severity=ErrorSeverity.HIGH)
+
+    def _validate_phone(self, country_code: Optional[str], phone_number: Optional[str]):
+        """Validate phone number format."""
+        if (country_code and not phone_number) or (phone_number and not country_code):
+            raise ValueError("Both country_code and phone_number must be provided together")
+
+        if country_code:
+            if not isinstance(country_code, str) or len(country_code) != 2:
+                raise ValueError("Country code must be a 2-character string (ISO 3166-1 alpha-2)")
+
+        if phone_number:
+            if not isinstance(phone_number, str):
+                raise ValueError("Phone number must be a string")
+
+            # Remove common separators
+            import re
+            cleaned = re.sub(r'[\s\-\(\)]', '', phone_number)
+
+            if not cleaned.isdigit():
+                raise ValueError("Phone number can only contain digits and separators")
+
+            if len(cleaned) < 7 or len(cleaned) > 15:
+                raise ValueError(f"Phone number length invalid: {len(cleaned)} digits (min 7, max 15)")
+
+    def _validate_phone_uniqueness(self, session: Session, country_code: Optional[str], phone_number: Optional[str], exclude_id: Optional[str] = None):
+        """Validate that phone number combination is unique."""
+        if not country_code or not phone_number:
+            return  # Skip if phone is not provided
+
+        query = session.query(self.model).filter(
+            and_(
+                self.model.country_code == country_code,
+                self.model.phone_number == phone_number,
+                self.model.is_deleted == False
+            )
+        )
+
+        if exclude_id:
+            query = query.filter(self.model.id != exclude_id)
+
+        existing = query.first()
+
+        if existing:
+            context = ErrorContext(operation='validate_phone_uniqueness', component=self.model_name,
+                                   additional_info={
+                                       'country_code': country_code,
+                                       'phone_number': phone_number,
+                                       'existing_id': existing.id
+                                   })
+            raise ValidationError(f"Phone number {country_code} {phone_number} already exists",
+                                  context=context, severity=ErrorSeverity.HIGH)
+
+    # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs) -> User:
         """Create a new user with validation."""
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
@@ -94,179 +220,20 @@ class UserCRUD(BaseCRUD[User]):
         user = super()._update(session, record_id, **kwargs)
         return user
 
-    def _validate_username(self, username: str) -> str:
-        """Validate username format."""
-        if not username or not isinstance(username, str):
-            raise ValueError("Username must be a non-empty string")
-        
-        username = username.strip()
-        
-        if len(username) < 3:
-            raise ValueError(f"Username too short: {len(username)} chars (min 3)")
-        
-        if len(username) > 50:
-            raise ValueError(f"Username too long: {len(username)} chars (max 50)")
-        
-        # Allow only alphanumeric, underscore, and hyphen
-        import re
-        if not re.match(r'^[a-zA-Z0-9_-]+$', username):
-            raise ValueError("Username can only contain letters, numbers, underscore, and hyphen")
-        
-        return username
+    # =================================================================================== ORCHESTRATION OPERATIONS =====
+    def _activate(self, session: Session, record_id: str) -> User:
+        """Activate user account."""
+        return self._update(session, record_id, is_active=True)
 
-    def _validate_email(self, email: str) -> str:
-        """Validate email format."""
-        if not email or not isinstance(email, str):
-            raise ValueError("Email must be a non-empty string")
-        
-        email = email.strip().lower()
-        
-        # Basic email validation
-        import re
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, email):
-            raise ValueError(f"Invalid email format: {email}")
-        
-        return email
-
-    def _validate_phone(self, country_code: Optional[str], phone_number: Optional[str]):
-        """Validate phone number format."""
-        if (country_code and not phone_number) or (phone_number and not country_code):
-            raise ValueError("Both country_code and phone_number must be provided together")
-        
-        if country_code:
-            if not isinstance(country_code, str) or len(country_code) != 2:
-                raise ValueError("Country code must be a 2-character string (ISO 3166-1 alpha-2)")
-        
-        if phone_number:
-            if not isinstance(phone_number, str):
-                raise ValueError("Phone number must be a string")
-            
-            # Remove common separators
-            import re
-            cleaned = re.sub(r'[\s\-\(\)]', '', phone_number)
-            
-            if not cleaned.isdigit():
-                raise ValueError("Phone number can only contain digits and separators")
-            
-            if len(cleaned) < 7 or len(cleaned) > 15:
-                raise ValueError(f"Phone number length invalid: {len(cleaned)} digits (min 7, max 15)")
-
-    def _validate_username_uniqueness(self, session: Session, username: str, exclude_id: Optional[str] = None):
-        """Validate that username is unique."""
-        query = session.query(self.model).filter(
-            and_(
-                self.model.username == username,
-                self.model.is_deleted == False
-            )
-        )
-        
-        if exclude_id:
-            query = query.filter(self.model.id != exclude_id)
-        
-        existing = query.first()
-        
-        if existing:
-            context = ErrorContext(operation='validate_username_uniqueness', component=self.model_name,
-                                 additional_info={'username': username, 'existing_id': existing.id})
-            raise ValidationError(f"Username '{username}' already exists",
-                                context=context, severity=ErrorSeverity.HIGH)
-
-    def _validate_email_uniqueness(self, session: Session, email: str, exclude_id: Optional[str] = None):
-        """Validate that email is unique."""
-        query = session.query(self.model).filter(
-            and_(
-                self.model.email == email,
-                self.model.is_deleted == False
-            )
-        )
-        
-        if exclude_id:
-            query = query.filter(self.model.id != exclude_id)
-        
-        existing = query.first()
-        
-        if existing:
-            context = ErrorContext(operation='validate_email_uniqueness', component=self.model_name,
-                                 additional_info={'email': email, 'existing_id': existing.id})
-            raise ValidationError(f"Email '{email}' already exists",
-                                context=context, severity=ErrorSeverity.HIGH)
-
-    def _validate_phone_uniqueness(self, session: Session, country_code: Optional[str], 
-                                   phone_number: Optional[str], exclude_id: Optional[str] = None):
-        """Validate that phone number combination is unique."""
-        if not country_code or not phone_number:
-            return  # Skip if phone is not provided
-        
-        query = session.query(self.model).filter(
-            and_(
-                self.model.country_code == country_code,
-                self.model.phone_number == phone_number,
-                self.model.is_deleted == False
-            )
-        )
-        
-        if exclude_id:
-            query = query.filter(self.model.id != exclude_id)
-        
-        existing = query.first()
-        
-        if existing:
-            context = ErrorContext(operation='validate_phone_uniqueness', component=self.model_name,
-                                 additional_info={
-                                     'country_code': country_code,
-                                     'phone_number': phone_number,
-                                     'existing_id': existing.id
-                                 })
-            raise ValidationError(f"Phone number {country_code} {phone_number} already exists",
-                                context=context, severity=ErrorSeverity.HIGH)
-
-    def _get_by_username(self, session: Session, username: str) -> Optional[User]:
-        """Get user by username."""
-        try:
-            username = self._validate_username(username)
-            
-            user = session.query(self.model).filter(
-                and_(
-                    self.model.username == username,
-                    self.model.is_deleted == False
-                )
-            ).first()
-            
-            return user
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_by_username', component=self.model_name,
-                                 additional_info={'username': username})
-            raise DatabaseQueryError(f"Failed to get {self.model_name} by username: {str(e)}",
-                                    context=context, severity=ErrorSeverity.HIGH)
-
-    def _get_by_email(self, session: Session, email: str) -> Optional[User]:
-        """Get user by email."""
-        try:
-            email = self._validate_email(email)
-            
-            user = session.query(self.model).filter(
-                and_(
-                    self.model.email == email,
-                    self.model.is_deleted == False
-                )
-            ).first()
-            
-            return user
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_by_email', component=self.model_name,
-                                 additional_info={'email': email})
-            raise DatabaseQueryError(f"Failed to get {self.model_name} by email: {str(e)}",
-                                    context=context, severity=ErrorSeverity.HIGH)
+    def _deactivate(self, session: Session, record_id: str) -> User:
+        """Deactivate user account."""
+        return self._update(session, record_id, is_active=False)
 
     def _lock_account(self, session: Session, record_id: str, reason: Optional[str] = None) -> User:
         """Lock user account."""
         user = self._get_by_id(session, record_id)
         if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(operation='lock_account', component=self.model_name,)
         
         user.is_locked = True
         session.add(user)
@@ -277,163 +244,10 @@ class UserCRUD(BaseCRUD[User]):
         """Unlock user account and reset failed login attempts."""
         user = self._get_by_id(session, record_id)
         if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(operation='unlock_account', component=self.model_name,)
         
         user.is_locked = False
         user.failed_login_attempts = 0
         session.add(user)
         session.flush()
         return user
-
-    def _increment_failed_login(self, session: Session, record_id: str, max_attempts: int = 5) -> User:
-        """Increment failed login attempts and lock if threshold exceeded."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.failed_login_attempts += 1
-        
-        # Lock account if max attempts exceeded
-        if user.failed_login_attempts >= max_attempts:
-            user.is_locked = True
-        
-        session.add(user)
-        session.flush()
-        return user
-
-    def _reset_failed_login(self, session: Session, record_id: str) -> User:
-        """Reset failed login attempts after successful login."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.failed_login_attempts = 0
-        session.add(user)
-        session.flush()
-        return user
-
-    def _update_last_login(self, session: Session, record_id: str) -> User:
-        """Update last login timestamp."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.last_login_at = datetime.now(timezone.utc)
-        user.failed_login_attempts = 0  # Reset on successful login
-        session.add(user)
-        session.flush()
-        return user
-
-    def _verify_email(self, session: Session, record_id: str) -> User:
-        """Mark user email as verified."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.is_verified = True
-        user.email_verified_at = datetime.now(timezone.utc)
-        user.verification_token = None  # Clear verification token
-        session.add(user)
-        session.flush()
-        return user
-
-    def _set_verification_token(self, session: Session, record_id: str, token: str) -> User:
-        """Set email verification token."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.verification_token = token
-        session.add(user)
-        session.flush()
-        return user
-
-    def _set_reset_token(self, session: Session, record_id: str, token: str, expires_hours: int = 24) -> User:
-        """Set password reset token with expiration."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.reset_token = token
-        user.reset_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
-        session.add(user)
-        session.flush()
-        return user
-
-    def _clear_reset_token(self, session: Session, record_id: str) -> User:
-        """Clear password reset token."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        user.reset_token = None
-        user.reset_token_expires_at = None
-        session.add(user)
-        session.flush()
-        return user
-
-    def _update_password(self, session: Session, record_id: str, new_hashed_password: str) -> User:
-        """Update user password and mark password change timestamp."""
-        user = self._get_by_id(session, record_id)
-        if not user:
-            raise ValidationError(f"{self.model_name} with ID {record_id} not found",
-                                severity=ErrorSeverity.MEDIUM)
-        
-        if not new_hashed_password or not isinstance(new_hashed_password, str):
-            raise ValueError("New hashed password must be a non-empty string")
-        
-        user.hashed_password = new_hashed_password
-        user.password_changed_at = datetime.now(timezone.utc)
-        user.reset_token = None  # Clear any active reset token
-        user.reset_token_expires_at = None
-        session.add(user)
-        session.flush()
-        return user
-
-    def _get_active_users(self, session: Session, skip: int = 0, limit: int = None) -> List[User]:
-        """Get all active users with pagination."""
-        try:
-            # Validate pagination parameters
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.is_active == True,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.created_at.desc()
-            ).offset(skip)
-            
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_active_users', component=self.model_name,
-                                 additional_info={'offset': skip, 'limit': limit})
-            raise DatabaseQueryError(f"Failed to get active {self.model_name} records: {str(e)}",
-                                    context=context, severity=ErrorSeverity.HIGH)
-
-    def _activate(self, session: Session, record_id: str) -> User:
-        """Activate user account."""
-        return self._update(session, record_id, is_active=True)
-
-    def _deactivate(self, session: Session, record_id: str) -> User:
-        """Deactivate user account."""
-        return self._update(session, record_id, is_active=False)
-

@@ -17,6 +17,7 @@ class TriggerCRUD(BaseCRUD[Trigger]):
         self.required_fields = {'workflow_id', 'name', 'trigger_type'}
         self.protected_fields = {'workflow_id', 'trigger_type'}
 
+    # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs) -> Trigger:
         """Create a new trigger with validation."""
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
@@ -84,91 +85,6 @@ class TriggerCRUD(BaseCRUD[Trigger]):
         trigger = super()._update(session, record_id, **kwargs)
         return trigger
 
-    def _get_by_workflow_id(self, session: Session, workflow_id: str, skip: int = 0, limit: int = None) -> List[Trigger]:
-        """Get triggers for a specific workflow with pagination."""
-        try:
-            # Validate workflow_id
-            workflow_id = validators._validate_id(workflow_id)
-            
-            # Validate pagination parameters
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            # Query triggers filtered by workflow_id
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.workflow_id == workflow_id,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.created_at.desc()
-            ).offset(skip)
-            
-            # Apply limit if specified
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_by_workflow_id',component=self.model_name,additional_info={'workflow_id': workflow_id, 'offset': skip, 'limit': limit})
-            raise DatabaseQueryError(f"Failed to get {self.model_name} records by workflow_id: {str(e)}",context=context,severity=ErrorSeverity.HIGH)
-
-    def _count_by_workflow_id(self, session: Session, workflow_id: str) -> int:
-        """Get total count of triggers for a specific workflow."""
-        try:
-            # Validate workflow_id
-            workflow_id = validators._validate_id(workflow_id)
-            
-            # Count triggers filtered by workflow_id
-            count = session.query(self.model).filter(
-                and_(
-                    self.model.workflow_id == workflow_id,
-                    self.model.is_deleted == False
-                )
-            ).count()
-            
-            return count
-            
-        except Exception as e:
-            context = ErrorContext(operation='count_by_workflow_id',component=self.model_name,additional_info={'workflow_id': workflow_id})
-            raise DatabaseQueryError(f"Failed to count {self.model_name} records by workflow_id: {str(e)}",context=context,severity=ErrorSeverity.HIGH)
-
-    def _get_by_type(self, session: Session, trigger_type: TriggerType, skip: int = 0, limit: int = None) -> List[Trigger]:
-        """Get triggers by type with pagination."""
-        try:
-            # Validate pagination parameters
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            # Query triggers filtered by type
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.trigger_type == trigger_type,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.created_at.desc()
-            ).offset(skip)
-            
-            # Apply limit if specified
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_by_type',component=self.model_name,additional_info={'trigger_type': str(trigger_type), 'offset': skip, 'limit': limit})
-            raise DatabaseQueryError(f"Failed to get {self.model_name} records by type: {str(e)}",context=context,severity=ErrorSeverity.HIGH)
-
     def _activate(self, session: Session, record_id: str) -> Trigger:
         """Activate a trigger."""
         return self._update(session, record_id, is_enabled=True)
@@ -176,24 +92,3 @@ class TriggerCRUD(BaseCRUD[Trigger]):
     def _deactivate(self, session: Session, record_id: str) -> Trigger:
         """Deactivate a trigger."""
         return self._update(session, record_id, is_enabled=False)
-
-    def _get_active_triggers(self, session: Session, workflow_id: str = None) -> List[Trigger]:
-        """Get all active triggers, optionally filtered by workflow."""
-        try:
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.is_enabled == True,
-                    self.model.is_deleted == False
-                )
-            )
-            
-            if workflow_id:
-                workflow_id = validators._validate_id(workflow_id)
-                query = query.filter(self.model.workflow_id == workflow_id)
-            
-            results = query.order_by(self.model.created_at.desc()).all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(operation='get_active_triggers',component=self.model_name,additional_info={'workflow_id': workflow_id})
-            raise DatabaseQueryError(f"Failed to get active {self.model_name} records: {str(e)}",context=context,severity=ErrorSeverity.HIGH)

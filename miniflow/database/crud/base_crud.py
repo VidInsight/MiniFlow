@@ -7,6 +7,7 @@ from functools import wraps
 
 from miniflow.core.logger import get_logger
 from miniflow.core.exceptions import ValidationError, DatabaseQueryError, ErrorContext, ErrorSeverity
+from miniflow.database import validators
 
 ModelType = TypeVar("ModelType", bound=DeclarativeMeta)
 T = TypeVar('T')
@@ -27,27 +28,13 @@ def handle_crud_errors(operation_name: str = None):
                 result = func(self, session, *args, **kwargs)
                 return result
             except (ValidationError, DatabaseQueryError):
-                # Re-raise our custom exceptions without wrapping
                 raise
             except SQLAlchemyError as e:
                 context = ErrorContext(operation=op_name, component=self.model_name, additional_info={"data": data})
-                self.logger.error(f"Database error in {op_name} for {self.model_name}: {str(e)}")
-                raise DatabaseQueryError(
-                    f"Database Error (via BaseCRUD {op_name}): {self.model_name}",
-                    context=context,
-                    severity=ErrorSeverity.HIGH,
-                    source_error=e
-                )
+                raise DatabaseQueryError(f"Database Error (via BaseCRUD {op_name}): {self.model_name}", context=context, severity=ErrorSeverity.HIGH, source_error=e)
             except Exception as e:
                 context = ErrorContext(operation=op_name, component=self.model_name, additional_info={"data": data})
-                self.logger.error(f"Unexpected error in {op_name} for {self.model_name}: {str(e)}")
-                raise DatabaseQueryError(
-                    f"CRUD Error (via BaseCRUD {op_name}): {self.model_name}",
-                    context=context,
-                    severity=ErrorSeverity.HIGH,
-                    source_error=e
-                )
-
+                raise DatabaseQueryError(f"CRUD Error (via BaseCRUD {op_name}): {self.model_name}",context=context,severity=ErrorSeverity.HIGH,source_error=e)
         return wrapper
 
     return decorator
@@ -68,51 +55,35 @@ class BaseCRUD(Generic[ModelType]):
         self.model_name = model.__name__
         self.logger = get_logger("database_orchestration")
 
+    # ========================================================================================== EXCEPTION HELPERS =====
+    def _raise_not_found_error(self, operation: str, record_id: str) -> None:
+        """Raise a standardized not found error"""
+        context = ErrorContext(operation=operation, component=self.model_name, additional_info={"id": record_id})
+        raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found",context=context,severity=ErrorSeverity.MEDIUM)
+
+    # ========================================================================================= VALIDATION HELPERS =====
     def _validate_required_fields_in_kwargs(self, required_fields: List[str], kwargs: Dict[str, Any]) -> None:
         """Validate that all required fields are present in kwargs"""
         missing_fields = [field for field in required_fields if field not in kwargs or kwargs[field] is None]
         if missing_fields:
-            context = ErrorContext(
-                operation="validate_required_fields",
-                component=self.model_name,
-                additional_info={"missing_fields": missing_fields}
-            )
-            raise ValidationError(
-                f"Missing required fields for {self.model_name}: {missing_fields}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
+            context = ErrorContext(operation="validate_required_fields",component=self.model_name,additional_info={"missing_fields": missing_fields})
+            raise ValidationError(f"Missing required fields for {self.model_name}: {missing_fields}",context=context,severity=ErrorSeverity.HIGH)
 
     def _validate_no_extra_fields(self, allowed_fields: List[str], kwargs: Dict[str, Any]) -> None:
         """Validate that no extra fields are present in kwargs"""
         extra_fields = [field for field in kwargs if field not in allowed_fields]
         if extra_fields:
-            context = ErrorContext(
-                operation="validate_no_extra_fields",
-                component=self.model_name,
-                additional_info={"extra_fields": extra_fields}
-            )
-            raise ValidationError(
-                f"Extra fields not allowed for {self.model_name}: {extra_fields}",
-                context=context,
-                severity=ErrorSeverity.MEDIUM
-            )
+            context = ErrorContext(operation="validate_no_extra_fields",component=self.model_name,additional_info={"extra_fields": extra_fields})
+            raise ValidationError(f"Extra fields not allowed for {self.model_name}: {extra_fields}",context=context,severity=ErrorSeverity.MEDIUM)
 
     def _validate_no_protected_fields(self, protected_fields: List[str], kwargs: Dict[str, Any]) -> None:
         """Validate that no protected fields are being modified in kwargs"""
         protected_attempts = [field for field in kwargs if field in protected_fields]
         if protected_attempts:
-            context = ErrorContext(
-                operation="validate_no_protected_fields",
-                component=self.model_name,
-                additional_info={"protected_fields": protected_attempts}
-            )
-            raise ValidationError(
-                f"Attempted to modify protected fields for {self.model_name}: {protected_attempts}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
+            context = ErrorContext(operation="validate_no_protected_fields",component=self.model_name,additional_info={"protected_fields": protected_attempts})
+            raise ValidationError(f"Attempted to modify protected fields for {self.model_name}: {protected_attempts}",context=context,severity=ErrorSeverity.HIGH)
 
+    # ============================================================================================ CRUD OPERATIONS =====
     @handle_crud_errors(operation_name="CREATE")
     def _create(self, session: Session, **kwargs) -> ModelType:
         """
@@ -149,31 +120,28 @@ class BaseCRUD(Generic[ModelType]):
         Returns:
             Model instance or None if not found
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="get_by_id", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
 
         if not relationships and not load_all_relationships:
-            db_object = cast(Optional[ModelType], session.get(self.model, record_id))
-        else:
-            query = select(self.model).where(self.model.id == record_id)
+            return session.get(self.model, record_id)
 
-            if load_all_relationships:
-                for relationship_name in self.model.__mapper__.relationships.keys():
-                    query = query.options(selectinload(getattr(self.model, relationship_name)))
-            elif relationships:
-                for rel_name in relationships:
-                    if rel_name in self.model.__mapper__.relationships.keys():
-                        query = query.options(selectinload(getattr(self.model, rel_name)))
-                    else:
-                        self.logger.warning(
-                            f"Relationship '{rel_name}' not found in {self.model_name}",
-                            extra={"relationship": rel_name, "model": self.model_name}
-                        )
+        query = select(self.model).where(self.model.id == record_id)
+        rels_to_load = (
+            self.model.__mapper__.relationships.keys()
+            if load_all_relationships
+            else relationships or []
+        )
 
-            db_object = cast(Optional[ModelType], session.execute(query).scalar_one_or_none())
+        for rel_name in rels_to_load:
+            if rel_name in self.model.__mapper__.relationships.keys():
+                query = query.options(selectinload(getattr(self.model, rel_name)))
+            else:
+                self.logger.warning(
+                    f"Relationship '{rel_name}' not found in {self.model_name}",
+                    extra={"relationship": rel_name, "model": self.model_name}
+                )
 
-        return db_object if db_object else None
+        return session.execute(query).scalar_one_or_none()
 
     @handle_crud_errors(operation_name="UPDATE")
     def _update(self, session: Session, record_id: str, **kwargs) -> ModelType:
@@ -188,9 +156,7 @@ class BaseCRUD(Generic[ModelType]):
         Returns:
             Updated model instance
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided for update", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
 
         if not kwargs:
             context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
@@ -198,8 +164,7 @@ class BaseCRUD(Generic[ModelType]):
 
         db_object = self._get_by_id(session, record_id)
         if not db_object:
-            context = ErrorContext(operation="update", component=self.model_name, additional_info={"id": record_id})
-            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for update",context=context,severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(record_id)
 
         for key, value in kwargs.items():
             if hasattr(db_object, key):
@@ -221,14 +186,11 @@ class BaseCRUD(Generic[ModelType]):
             session: SQLAlchemy session
             record_id: ID of the record to delete
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="delete", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided for deletion", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
 
         db_object = self._get_by_id(session, record_id)
         if not db_object:
-            context = ErrorContext(operation="delete", component=self.model_name, additional_info={"id": record_id})
-            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for deletion",context=context,severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(record_id)
 
         session.delete(db_object)
         session.flush()
@@ -243,18 +205,12 @@ class BaseCRUD(Generic[ModelType]):
             record_id: ID of the record to soft delete
             user_id: ID of the user performing the deletion
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided for soft deletion", context=context, severity=ErrorSeverity.MEDIUM)
-
-        if not user_id or not isinstance(user_id, str):
-            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"user_id": user_id})
-            raise ValidationError("Invalid user ID provided for soft deletion", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
+        user_id = validators.validate_record_id(user_id, "User")
 
         db_object = self._get_by_id(session, record_id)
         if not db_object:
-            context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
-            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for soft deletion",context=context,severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(record_id)
 
         if hasattr(db_object, 'is_deleted') and hasattr(db_object, 'deleted_at') and hasattr(db_object, 'deleted_by'):
             setattr(db_object, 'is_deleted', True)
@@ -275,14 +231,11 @@ class BaseCRUD(Generic[ModelType]):
             session: SQLAlchemy session
             record_id: ID of the record to restore
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided for restoration", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
 
         db_object = self._get_by_id(session, record_id)
         if not db_object:
-            context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
-            raise DatabaseQueryError(f"{self.model_name} with ID '{record_id}' not found for restoration",context=context,severity=ErrorSeverity.MEDIUM)
+            self._raise_not_found_error(record_id)
 
         if hasattr(db_object, 'is_deleted') and hasattr(db_object, 'deleted_at') and hasattr(db_object, 'deleted_by'):
             setattr(db_object, 'is_deleted', False)
@@ -306,9 +259,7 @@ class BaseCRUD(Generic[ModelType]):
         Returns:
             True if record exists, False otherwise
         """
-        if not record_id or not isinstance(record_id, str):
-            context = ErrorContext(operation="exists", component=self.model_name, additional_info={"id": record_id})
-            raise ValidationError("Invalid ID provided for existence check", context=context, severity=ErrorSeverity.MEDIUM)
+        record_id = validators.validate_record_id(record_id, self.model_name)
 
         query = select(exists().where(self.model.id == record_id))
         result = session.execute(query).scalar()

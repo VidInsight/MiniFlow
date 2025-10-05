@@ -15,6 +15,7 @@ class ExecutionInputCRUD(BaseCRUD[ExecutionInput]):
         self.required_fields = {'execution_id', 'workflow_id', 'node_name', 'script_name', 'script_path'}  # node_id optional due to ondelete='SET NULL'
         self.protected_fields = {'execution_id', 'workflow_id', 'node_id'}
 
+    # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs) -> ExecutionInput:
         """Create a new execution input record with validation."""
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
@@ -41,60 +42,6 @@ class ExecutionInputCRUD(BaseCRUD[ExecutionInput]):
         self._validate_no_extra_fields(self.model_fields, kwargs)
         execution_input = super()._create(session, **kwargs)
         return execution_input
-
-    def _get_by_execution_id(self, session: Session, execution_id: str, skip: int = 0, limit: int = None ) -> list[ExecutionInput]:
-        """Get execution inputs for a specific execution with pagination."""
-        try:
-            # Validate execution_id
-            execution_id = validators._validate_id(execution_id)
-
-            # Validate pagination parameters
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-
-            # Query execution inputs filtered by execution_id
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.execution_id == execution_id,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.created_at.asc()
-            ).offset(skip)
-
-            # Apply limit if specified
-            if limit is not None:
-                query = query.limit(limit)
-
-            results = query.all()
-            return results
-
-        except Exception as e:
-            context = ErrorContext(operation='get_by_execution_id',component=self.model_name,additional_info={'execution_id': execution_id,'offset': skip,'limit': limit})
-            raise DatabaseQueryError(f"Failed to get {self.model_name} records by execution_id: {str(e)}",context=context,severity=ErrorSeverity.HIGH)
-
-    def _count_by_execution_id(self, session: Session, execution_id: str) -> int:
-        """Get total count of execution inputs for a specific execution."""
-        try:
-            # Validate execution_id
-            execution_id = validators._validate_id(execution_id)
-            
-            # Count execution inputs filtered by execution_id
-            count = session.query(self.model).filter(
-                and_(
-                    self.model.execution_id == execution_id,
-                    self.model.is_deleted == False
-                )
-            ).count()
-            
-            return count
-            
-        except Exception as e:
-            context = ErrorContext(operation='count_by_execution_id',component=self.model_name,additional_info={'execution_id': execution_id})
-            raise DatabaseQueryError(f"Failed to count {self.model_name} records by execution_id: {str(e)}",context=context,severity=ErrorSeverity.HIGH)
 
     def _increase_wait_factor(self, session: Session, record_id: str) -> ExecutionInput:
         """Increase the wait factor for a specific execution input."""

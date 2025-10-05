@@ -1,9 +1,6 @@
-import os
 from sqlalchemy.orm import Session
 
-from miniflow.core.exceptions import ValidationError, ErrorSeverity, ErrorContext
 import miniflow.database.validators as validators
-
 from ..models import FileUpload
 from .base_crud import BaseCRUD
 
@@ -15,21 +12,22 @@ class FileUploadCRUD(BaseCRUD[FileUpload]):
         self.required_fields = {'name', 'filename', 'file_extension', 'file_path'}
         self.protected_fields = {'filename', 'file_extension', 'file_path', 'file_size', 'mime_type', 'checksum'}
 
+    # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs):
         """Create a new file upload record with validation."""
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
 
         name = kwargs.get('name')
-        kwargs['name'] = validators._validate_name(name)
+        kwargs['name'] = validators.validate_name(name)
 
         file_name = kwargs.get('filename')
-        kwargs['filename'] = validators._validate_file_name(file_name)
+        kwargs['filename'] = validators.validate_file_name(file_name)
 
         file_extension = kwargs.get('file_extension')
-        kwargs['file_extension'] = validators._validate_file_extension(file_extension)
+        kwargs['file_extension'] = validators.validate_file_extension(file_extension, type="file", component=self.model_name)
 
         file_path = kwargs.get('file_path')
-        validators._validate_file_path(file_path)
+        validators.validate_file_path(file_path)
 
         self._validate_no_extra_fields(self.model_fields, kwargs)
         file_upload =  super()._create(session, **kwargs)
@@ -46,15 +44,3 @@ class FileUploadCRUD(BaseCRUD[FileUpload]):
         self._validate_no_extra_fields(self.model_fields, kwargs)
         file_upload = super()._update(session, record_id, **kwargs)
         return file_upload
-
-    def _validate_file_existence(self, session: Session, record_id: str) -> bool:
-        """Validate that file record and physical file both exist."""
-        file_record = super()._get_by_id(session, record_id)
-        if not file_record:
-            context = ErrorContext(operation="file_existence_check",component=self.model_name,additional_info={'id': record_id})
-            raise ValidationError(f"File with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
-
-        # Check if physical file exists
-        if not os.path.isfile(file_record.file_path):
-            return False
-        return True

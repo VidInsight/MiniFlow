@@ -6,6 +6,7 @@ from miniflow.core.exceptions import ValidationError, ErrorSeverity, ErrorContex
 import miniflow.database.validators as validators
 
 from ..models import Script
+from ..enums import ScriptTestStatus
 from .base_crud import BaseCRUD
 
 
@@ -16,30 +17,31 @@ class ScriptCRUD(BaseCRUD[Script]):
         self.required_fields = {'name', 'category', 'file_extension', 'file_path', 'content', 'input_schema', 'output_schema'}
         self.protected_fields = {'category', 'subcategory', 'file_extension', 'file_path', 'file_size'}
 
+    # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs):
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
 
         name = kwargs.get('name')
-        kwargs['name'] = validators._validate_name(name)
+        kwargs['name'] = validators.validate_name(name, component=self.model_name)
 
         category = kwargs.get('category')
-        kwargs['category'] = validators._validate_name(category)
+        kwargs['category'] = validators.validate_name(category, component=self.model_name)
 
         if kwargs.get('subcategory'):
             subcategory = kwargs.get('subcategory')
-            kwargs['subcategory'] = validators._validate_name(subcategory)
+            kwargs['subcategory'] = validators.validate_name(subcategory, component=self.model_name)
 
         file_extension = kwargs.get('file_extension')
-        kwargs['file_extension'] = validators._validate_file_extension(file_extension, type='script')
+        kwargs['file_extension'] = validators.validate_file_extension(file_extension, type='script')
 
         file_path = kwargs.get('file_path')
-        validators._validate_file_path(file_path)
+        validators.validate_file_path(file_path)
 
         input_schema = kwargs.get('input_schema')
-        validators._validate_input_schema(input_schema)
+        validators.validate_input_schema(input_schema)
 
         output_schema = kwargs.get('output_schema')
-        validators._validate_output_schema(output_schema)
+        validators.validate_output_schema(output_schema)
 
         self._validate_no_extra_fields(self.model_fields, kwargs)
         script =  super()._create(session, **kwargs)
@@ -50,36 +52,32 @@ class ScriptCRUD(BaseCRUD[Script]):
 
         if kwargs.get('name'):
             name = kwargs.get('name')
-            kwargs['name'] = validators._validate_name(name)
+            kwargs['name'] = validators.validate_name(name)
 
         if kwargs.get('input_schema'):
             input_schema = kwargs.get('input_schema')
-            validators._validate_input_schema(input_schema)
+            validators.validate_input_schema(input_schema)
 
         if kwargs.get('output_schema'):
             output_schema = kwargs.get('output_schema')
-            validators._validate_output_schema(output_schema)
+            validators.validate_output_schema(output_schema)
 
         self._validate_no_extra_fields(self.model_fields, kwargs)
         script = super()._update(session, record_id, **kwargs)
         return script
 
+    # =========================================================================================== STATS OPERATIONS =====
     def _update_test_stats(self, session: Session, record_id: str, **kwargs):
         """Update test statistics for a script."""
         test_stats = ['test_status', 'test_coverage', 'last_test_run_at', 'test_results', 'is_dangerous']
 
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='update_test_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
-        # Update only the fields that are provided
         for field in test_stats:
             if field in kwargs:
                 setattr(script, field, kwargs[field])
-        
-        if 'last_test_run_at' not in kwargs:
-            script.last_test_run_at = datetime.now(timezone.utc)
 
         session.add(script)
         session.flush()
@@ -90,8 +88,7 @@ class ScriptCRUD(BaseCRUD[Script]):
         """Get test statistics for a script."""
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='get_test_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
         return {
             'test_status': script.test_status,
@@ -102,12 +99,11 @@ class ScriptCRUD(BaseCRUD[Script]):
 
     def _update_performance_stats(self, session: Session, record_id: str, **kwargs):
         """Update performance statistics for a script."""
-        performance_stats = ['avg_execution_time', 'min_execution_time', 'max_execution_time', 'success_rate', 'total_executions']
+        performance_stats = ['avg_execution_time', 'min_execution_time', 'max_execution_time', 'total_executions']
 
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='update_performance_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
         # Update only the fields that are provided
         for field in performance_stats:
@@ -123,8 +119,7 @@ class ScriptCRUD(BaseCRUD[Script]):
         """Get performance statistics for a script."""
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='get_performance_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
         return {
             'avg_execution_time': script.avg_execution_time,
@@ -134,23 +129,36 @@ class ScriptCRUD(BaseCRUD[Script]):
             'total_executions': script.total_executions
         }
 
-    def _update_security_stats(self, session: Session, record_id: str, **kwargs):
-        """Update security statistics for a script."""
-        security_stats = ['is_approved', 'approved_by', 'approved_at', 'is_dangerous']
+    def _approve(self, session: Session, record_id: str, approved_by: str):
+        """Approve script for production use."""
+
+        # Validate approved_by user ID
+        record_id = validators.validate_record_id(record_id, component=self.model_name)
+        approved_by = validators.validate_record_id(approved_by, component=self.model_name)
 
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='update_security_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
-        # Update only the fields that are provided
-        for field in security_stats:
-            if field in kwargs:
-                setattr(script, field, kwargs[field])
-        
-        # Automatically set approved_at if is_approved is True and approved_at not provided
-        if kwargs.get('is_approved') is True and 'approved_at' not in kwargs:
-            script.approved_at = datetime.now(timezone.utc)
+        # Validate script has been tested
+        if script.test_status == ScriptTestStatus.UNTESTED:
+            context = ErrorContext(operation='approve', component=self.model_name,additional_info={'id': record_id, 'test_status': script.test_status.value})
+            raise ValidationError("Cannot approve untested script. Run tests first.", severity=ErrorSeverity.HIGH,context=context)
+
+        # Validate script tests passed
+        if script.test_status == ScriptTestStatus.FAILED:
+            context = ErrorContext(operation='approve', component=self.model_name, additional_info={'id': record_id, 'test_status': script.test_status.value})
+            raise ValidationError("Cannot approve script with failed tests", severity=ErrorSeverity.HIGH, context=context)
+
+        # Validate script is not flagged as dangerous
+        if script.is_dangerous:
+            context = ErrorContext(operation='approve', component=self.model_name, additional_info={'id': record_id, 'is_dangerous': True})
+            raise ValidationError("Cannot approve script flagged as dangerous. Run security scan first.", severity=ErrorSeverity.CRITICAL, context=context)
+
+        # Approve the script
+        script.is_approved = True
+        script.approved_by = approved_by
+        script.approved_at = datetime.now(timezone.utc)
 
         session.add(script)
         session.flush()
@@ -161,8 +169,7 @@ class ScriptCRUD(BaseCRUD[Script]):
         """Get security statistics for a script."""
         script = super()._get_by_id(session, record_id)
         if not script:
-            context = ErrorContext(operation='get_security_stats', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
+            self._raise_not_found_error(operation="_update_execution_durations" , record_id=record_id)
 
         return {
             'is_approved': script.is_approved,
@@ -170,52 +177,3 @@ class ScriptCRUD(BaseCRUD[Script]):
             'approved_at': script.approved_at,
             'is_dangerous': script.is_dangerous
         }
-
-    def _approve(self, session: Session, record_id: str, approved_by: str):
-        """Approve script for production use."""
-        from miniflow.database.enums import ScriptTestStatus
-
-        # Validate approved_by user ID
-        validators._validate_id(approved_by)
-
-        script = super()._get_by_id(session, record_id)
-        if not script:
-            context = ErrorContext(operation='approve', component=self.model_name, additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
-        
-        # Validate script has been tested
-        if script.test_status == ScriptTestStatus.UNTESTED:
-            context = ErrorContext(operation='approve', component=self.model_name, additional_info={'id': record_id, 'test_status': script.test_status.value})
-            raise ValidationError("Cannot approve untested script. Run tests first.", severity=ErrorSeverity.HIGH, context=context)
-        
-        # Validate script tests passed
-        if script.test_status == ScriptTestStatus.FAILED:
-            context = ErrorContext(operation='approve', component=self.model_name,additional_info={'id': record_id, 'test_status': script.test_status.value})
-            raise ValidationError("Cannot approve script with failed tests", severity=ErrorSeverity.HIGH, context=context)
-        
-        # Validate script is not flagged as dangerous
-        if script.is_dangerous:
-            context = ErrorContext(operation='approve', component=self.model_name,additional_info={'id': record_id, 'is_dangerous': True})
-            raise ValidationError("Cannot approve script flagged as dangerous. Run security scan first.", severity=ErrorSeverity.CRITICAL, context=context)
-        
-        # Approve the script
-        script.is_approved = True
-        script.approved_by = approved_by
-        script.approved_at = datetime.now(timezone.utc)
-        
-        session.add(script)
-        session.flush()
-        
-        return script
-
-    def _validate_script_existence(self, session: Session, record_id: str) -> bool:
-        """Validate that script record and physical file both exist."""
-        script_record = super()._get_by_id(session, record_id)
-        if not script_record:
-            context = ErrorContext(operation="script_existence_check",component=self.model_name,additional_info={'id': record_id})
-            raise ValidationError(f"Script with ID {record_id} does not exist", severity=ErrorSeverity.HIGH, context=context)
-
-        # Check if physical file exists
-        if not os.path.isfile(script_record.file_path):
-            return False
-        return True
