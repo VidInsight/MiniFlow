@@ -182,13 +182,14 @@ class FileUpload(BaseModel):
 
     # Basic file information
     name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
     filename = Column(String(255), nullable=False)
-    file_extension = Column(String(20), nullable=True)
+    file_extension = Column(String(20), nullable=False)
     file_path = Column(Text, unique=True, nullable=False)
-    file_size = Column(Integer, nullable=False)
+    file_size = Column(Integer, nullable=True)
     mime_type = Column(String(100), nullable=True)
     checksum = Column(String(64), nullable=True)
-    is_temporary = Column(Boolean, default=True)
+    is_temporary = Column(Boolean, default=False, nullable=False)
 
     # Relationships - Role-based access control
     user_roles = relationship("UserFileRole", back_populates="file_upload", cascade="all, delete-orphan")
@@ -212,6 +213,7 @@ class Script(BaseModel):
     file_path = Column(Text, nullable=True)
     file_size = Column(Integer, nullable=True)
     content = Column(Text, nullable=True)
+    script_metadata = Column(JSON, nullable=True)
 
     # Environment - Required Python packages
     required_packages = Column(JSON, default=lambda: [], nullable=False)
@@ -227,28 +229,26 @@ class Script(BaseModel):
     test_coverage = Column(Float, nullable=True)
     last_test_run_at = Column(DateTime, nullable=True, index=True)
     test_results = Column(JSON, default=lambda: {}, nullable=False)
+    is_dangerous = Column(Boolean, default=False, nullable=False)
 
     # Performance metrics - Execution statistics
     avg_execution_time = Column(Float, nullable=True)
     min_execution_time = Column(Float, nullable=True)
     max_execution_time = Column(Float, nullable=True)
-    success_rate = Column(Float, nullable=True)
     total_executions = Column(Integer, default=0, nullable=False)
 
     # Security and approval workflow
     is_approved = Column(Boolean, default=False, nullable=False, index=True)
     approved_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     approved_at = Column(DateTime, nullable=True)
-    is_dangerous = Column(Boolean, default=False, nullable=False)
 
     # Metadata and documentation
-    tags = Column(JSON, default=lambda: [], nullable=False)
-    author = Column(String(100), nullable=True)
+    tags = Column(JSON, default=lambda: [], nullable=True)
     documentation_url = Column(String(500), nullable=True)
 
     # Relationships
     nodes = relationship("Node", back_populates="script")
-    approver = relationship("User", foreign_keys="[Script.approved_by]")
+    approver = relationship("User", foreign_keys="[Script.approved_by]", back_populates="approved_scripts")
 
 
 class Workflow(BaseModel):
@@ -259,12 +259,11 @@ class Workflow(BaseModel):
     # Basic workflow information
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text, nullable=True)
-    priority = Column(Integer, default=0, nullable=False)
+    priority = Column(Integer, default=1, nullable=False)
     status = Column(Enum(WorkflowStatus), default=WorkflowStatus.DRAFT, nullable=False, index=True)
     status_message = Column(Text, nullable=True, default='Currently no error context is available')
 
     # Ownership and access control
-    is_active = Column(Boolean, default=True, nullable=False, index=True)
     is_public = Column(Boolean, default=False, nullable=False)
 
     # Execution statistics - Performance tracking
@@ -289,8 +288,8 @@ class Workflow(BaseModel):
     executions = relationship("Execution", back_populates="workflow", cascade="all, delete-orphan")
     triggers = relationship("Trigger", back_populates="workflow", cascade="all, delete-orphan")
     user_roles = relationship("UserWorkflowRole", back_populates="workflow", cascade="all, delete-orphan")
-    execution_inputs = relationship("ExecutionInput", back_populates="workflow")
-    execution_outputs = relationship("ExecutionOutput", back_populates="workflow")
+    execution_inputs = relationship("ExecutionInput", back_populates="workflow", cascade="all, delete-orphan")
+    execution_outputs = relationship("ExecutionOutput", back_populates="workflow", cascade="all, delete-orphan")
 
 
 class Node(BaseModel):
@@ -390,7 +389,7 @@ class ExecutionInput(BaseModel):
     # Relationships - Parent execution and workflow
     execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False)
-    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='SET NULL'), nullable=True)
+    node_id = Column(String(20), ForeignKey('nodes.id', ondelete='SET NULL'), nullable=True)  # Nullable for SET NULL on delete
 
     # Scheduling parameters - Execution order and priority
     dependency_count = Column(Integer, default=0, nullable=False)
@@ -400,18 +399,13 @@ class ExecutionInput(BaseModel):
     # Node execution data - Parameters and script information
     node_name = Column(String(100), nullable=False)
     node_params = Column(JSON, default=lambda: {}, nullable=False)
-    script_name = Column(String(100), nullable=True)
-    script_path = Column(Text, nullable=True)
+    script_name = Column(String(100), nullable=False)
+    script_path = Column(Text, nullable=False)
 
     # Relationships
     execution = relationship("Execution", back_populates="execution_inputs")
     workflow = relationship("Workflow", back_populates="execution_inputs")
     node = relationship("Node", back_populates="execution_inputs")
-
-    @property
-    def computed_priority(self):
-        """Calculate final priority considering wait factor"""
-        return self.priority + (self.wait_factor * 10)
 
 
 class ExecutionOutput(BaseModel):
@@ -482,7 +476,7 @@ class User(BaseModel):
     hashed_password = Column(String(255), nullable=False)
     country_code = Column(String(2), nullable=True)
     phone_number = Column(String(20), nullable=True)
-    plan = Column(Boolean, default=False, nullable=False)
+    plan = Column(Enum(Plans), default=Plans.FREE, nullable=False, index=True)
 
     # Account status - User state management
     is_active = Column(Boolean, default=True, nullable=False, index=True)

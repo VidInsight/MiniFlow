@@ -5,6 +5,12 @@ class WorkflowStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     DEACTIVATED = "DEACTIVATED"
 
+class ScriptStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
 class ScriptTestStatus(str, enum.Enum):
     UNTESTED = "UNTESTED"
     PASSED = "PASSED"
@@ -43,7 +49,6 @@ class VariableType(str, enum.Enum):
     BOOLEAN = "BOOLEAN"
     JSON = "JSON"
     SECRET = "SECRET"
-    CREDENTIAL = "CREDENTIAL"
     FILE_PATH = "FILE_PATH"
     URL = "URL"
 

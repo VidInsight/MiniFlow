@@ -107,7 +107,7 @@ class BaseCRUD(Generic[ModelType]):
         return db_object
 
     @handle_crud_errors(operation_name="GET_BY_ID")
-    def _get_by_id(self, session: Session, record_id: str, *, relationships: Optional[List[str]] = None, load_all_relationships: bool = False) -> Optional[ModelType]:
+    def _get_by_id(self, session: Session, record_id: str, include_relationships: bool = False) -> Optional[ModelType]:
         """
         Get single record by ID.
 
@@ -122,29 +122,23 @@ class BaseCRUD(Generic[ModelType]):
         """
         record_id = validators.validate_record_id(record_id, self.model_name)
 
-        if not relationships and not load_all_relationships:
-            return session.get(self.model, record_id)
+        if include_relationships:
+            query = select(self.model).where(self.model.id == record_id)
 
-        query = select(self.model).where(self.model.id == record_id)
-        rels_to_load = (
-            self.model.__mapper__.relationships.keys()
-            if load_all_relationships
-            else relationships or []
-        )
+            for relationship_name in self.model.__mapper__.relationships.keys():
+                query = query.options(selectinload(getattr(self.model, relationship_name)))
 
-        for rel_name in rels_to_load:
-            if rel_name in self.model.__mapper__.relationships.keys():
-                query = query.options(selectinload(getattr(self.model, rel_name)))
-            else:
-                self.logger.warning(
-                    f"Relationship '{rel_name}' not found in {self.model_name}",
-                    extra={"relationship": rel_name, "model": self.model_name}
-                )
+            result = session.execute(query).scalar_one_or_none()
+        else:
+            result = session.get(self.model, record_id)
 
-        return session.execute(query).scalar_one_or_none()
+        if result:
+            return result
+        else:
+            return None
 
     @handle_crud_errors(operation_name="UPDATE")
-    def _update(self, session: Session, record_id: str, **kwargs) -> ModelType:
+    def _update(self, session: Session, record_id: str, **kwargs) -> Optional[ModelType]:
         """
         Update existing record by ID.
 
@@ -178,7 +172,7 @@ class BaseCRUD(Generic[ModelType]):
         return db_object
 
     @handle_crud_errors(operation_name="DELETE")
-    def _delete(self, session: Session, record_id: str) -> None:
+    def _delete(self, session: Session, record_id: str) -> Optional[ModelType]:
         """
         Permanently delete record by ID.
 
@@ -195,8 +189,10 @@ class BaseCRUD(Generic[ModelType]):
         session.delete(db_object)
         session.flush()
 
+        return db_object
+
     @handle_crud_errors(operation_name="SOFT_DELETE")
-    def _soft_delete(self, session: Session, record_id: str, user_id: str) -> None:
+    def _soft_delete(self, session: Session, record_id: str, user_id: str) -> Optional[ModelType]:
         """
         Soft delete record by ID (marks as deleted without removing from database).
 
@@ -218,12 +214,14 @@ class BaseCRUD(Generic[ModelType]):
             setattr(db_object, 'deleted_by', user_id)
             session.add(db_object)
             session.flush()
+
+            return db_object
         else:
             context = ErrorContext(operation="soft_delete", component=self.model_name, additional_info={"id": record_id})
             raise ValidationError(f"{self.model_name} does not support soft deletion (missing required fields: is_deleted, deleted_at, deleted_by)",context=context,severity=ErrorSeverity.HIGH)
 
     @handle_crud_errors(operation_name="RESTORE")
-    def _restore(self, session: Session, record_id: str) -> None:
+    def _restore(self, session: Session, record_id: str) -> Optional[ModelType]:
         """
         Restore soft-deleted record by ID.
 
@@ -243,6 +241,8 @@ class BaseCRUD(Generic[ModelType]):
             setattr(db_object, 'deleted_by', None)
             session.add(db_object)
             session.flush()
+
+            return db_object
         else:
             context = ErrorContext(operation="restore", component=self.model_name, additional_info={"id": record_id})
             raise ValidationError(f"{self.model_name} does not support restoration (missing required fields: is_deleted, deleted_at, deleted_by)",context=context,severity=ErrorSeverity.HIGH)
@@ -267,7 +267,7 @@ class BaseCRUD(Generic[ModelType]):
         return bool(result)
 
     @handle_crud_errors(operation_name="GET_ALL")
-    def _get_all( self, session: Session, *, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, relationships: Optional[List[str]] = None, load_all_relationships: bool = False, **filters) -> List[ModelType]:
+    def _get_all( self, session: Session, *, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, **filters) -> List[ModelType]:
         """
         Get all records with pagination, filtering, and optional ordering.
 
@@ -278,8 +278,6 @@ class BaseCRUD(Generic[ModelType]):
             order_by: Field name to order by
             order_desc: If True, order in descending order
             include_deleted: If True, include soft-deleted records
-            relationships: List of specific relationship names to load
-            load_all_relationships: If True, load all relationships
             **filters: Field equality filters
 
         Returns:
@@ -317,17 +315,6 @@ class BaseCRUD(Generic[ModelType]):
                 query = query.order_by(order_field.desc() if order_desc else order_field)
             else:
                 self.logger.warning(f"Attempted to order by non-existent field '{order_by}' on {self.model_name}",extra={"field": order_by, "model": self.model_name})
-
-        # Load relationships if requested
-        if load_all_relationships:
-            for relationship_name in self.model.__mapper__.relationships.keys():
-                query = query.options(selectinload(getattr(self.model, relationship_name)))
-        elif relationships:
-            for rel_name in relationships:
-                if rel_name in self.model.__mapper__.relationships.keys():
-                    query = query.options(selectinload(getattr(self.model, rel_name)))
-                else:
-                    self.logger.warning(f"Relationship '{rel_name}' not found in {self.model_name}",extra={"relationship": rel_name, "model": self.model_name})
 
         # Apply pagination
         query = query.offset(skip).limit(limit)

@@ -129,268 +129,20 @@ class BaseJunctionCRUD(BaseCRUD[TJunction], Generic[TJunction]):
                 severity=ErrorSeverity.MEDIUM
             )
 
-    def _get_by_user(self, session: Session, user_id: str, skip: int = 0, limit: int = None) -> List[TJunction]:
-        """Get all role assignments for a user."""
-        try:
-            user_id = validators._validate_id(user_id)
-            
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            query = session.query(self.model).filter(
-                and_(
-                    getattr(self.model, self.user_field) == user_id,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.granted_at.desc()
-            ).offset(skip)
-            
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='get_by_user',
-                component=self.model_name,
-                additional_info={self.user_field: user_id, 'offset': skip, 'limit': limit}
-            )
-            raise DatabaseQueryError(
-                f"Failed to get {self.model_name} by user: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _get_by_resource(self, session: Session, resource_id: str, skip: int = 0, limit: int = None) -> List[TJunction]:
-        """Get all users with roles for a resource."""
-        try:
-            resource_id = validators._validate_id(resource_id)
-            
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            query = session.query(self.model).filter(
-                and_(
-                    getattr(self.model, self.resource_field) == resource_id,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.granted_at.desc()
-            ).offset(skip)
-            
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='get_by_resource',
-                component=self.model_name,
-                additional_info={self.resource_field: resource_id, 'offset': skip, 'limit': limit}
-            )
-            raise DatabaseQueryError(
-                f"Failed to get {self.model_name} by resource: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
     def _get_by_user_and_resource(self, session: Session, user_id: str, resource_id: str) -> Optional[TJunction]:
         """Get role assignment for specific user-resource pair."""
-        try:
-            user_id = validators._validate_id(user_id)
-            resource_id = validators._validate_id(resource_id)
-            
-            junction = session.query(self.model).filter(
-                and_(
-                    getattr(self.model, self.user_field) == user_id,
-                    getattr(self.model, self.resource_field) == resource_id,
-                    self.model.is_deleted == False
-                )
-            ).first()
-            
-            return junction
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='get_by_user_and_resource',
-                component=self.model_name,
-                additional_info={self.user_field: user_id, self.resource_field: resource_id}
+        user_id = validators._validate_id(user_id)
+        resource_id = validators._validate_id(resource_id)
+        
+        junction = session.query(self.model).filter(
+            and_(
+                getattr(self.model, self.user_field) == user_id,
+                getattr(self.model, self.resource_field) == resource_id,
+                self.model.is_deleted == False
             )
-            raise DatabaseQueryError(
-                f"Failed to get {self.model_name} by user and resource: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _get_by_role(self, session: Session, role: Roles, skip: int = 0, limit: int = None) -> List[TJunction]:
-        """Get all assignments for a specific role."""
-        try:
-            if not isinstance(skip, int) or skip < 0:
-                raise ValueError("Offset must be a non-negative integer")
-            
-            if limit is not None and (not isinstance(limit, int) or limit <= 0):
-                raise ValueError("Limit must be a positive integer or None")
-            
-            query = session.query(self.model).filter(
-                and_(
-                    self.model.role == role,
-                    self.model.is_deleted == False
-                )
-            ).order_by(
-                self.model.granted_at.desc()
-            ).offset(skip)
-            
-            if limit is not None:
-                query = query.limit(limit)
-            
-            results = query.all()
-            return results
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='get_by_role',
-                component=self.model_name,
-                additional_info={'role': str(role), 'offset': skip, 'limit': limit}
-            )
-            raise DatabaseQueryError(
-                f"Failed to get {self.model_name} by role: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _count_by_user(self, session: Session, user_id: str) -> int:
-        """Count role assignments for a user."""
-        try:
-            user_id = validators._validate_id(user_id)
-            
-            count = session.query(self.model).filter(
-                and_(
-                    getattr(self.model, self.user_field) == user_id,
-                    self.model.is_deleted == False
-                )
-            ).count()
-            
-            return count
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='count_by_user',
-                component=self.model_name,
-                additional_info={self.user_field: user_id}
-            )
-            raise DatabaseQueryError(
-                f"Failed to count {self.model_name} by user: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _count_by_resource(self, session: Session, resource_id: str) -> int:
-        """Count users with roles for a resource."""
-        try:
-            resource_id = validators._validate_id(resource_id)
-            
-            count = session.query(self.model).filter(
-                and_(
-                    getattr(self.model, self.resource_field) == resource_id,
-                    self.model.is_deleted == False
-                )
-            ).count()
-            
-            return count
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='count_by_resource',
-                component=self.model_name,
-                additional_info={self.resource_field: resource_id}
-            )
-            raise DatabaseQueryError(
-                f"Failed to count {self.model_name} by resource: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _revoke_by_user_and_resource(self, session: Session, user_id: str, resource_id: str) -> Optional[TJunction]:
-        """Revoke (soft delete) role assignment for user-resource pair."""
-        try:
-            junction = self._get_by_user_and_resource(session, user_id, resource_id)
-
-            if not junction:
-                return None
-            
-            self._delete(session, junction.id)
-            return junction
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='revoke_by_user_and_resource',
-                component=self.model_name,
-                additional_info={self.user_field: user_id, self.resource_field: resource_id}
-            )
-            raise DatabaseQueryError(
-                f"Failed to revoke {self.model_name}: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _revoke_all_by_user(self, session: Session, user_id: str) -> List[TJunction]:
-        """Revoke all role assignments for a user."""
-        try:
-            assignments = self._get_by_user(session, user_id)
-            
-            revoked = []
-            for assignment in assignments:
-                self._delete(session, assignment.id)
-                revoked.append(assignment)
-            
-            return revoked
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='revoke_all_by_user',
-                component=self.model_name,
-                additional_info={self.user_field: user_id}
-            )
-            raise DatabaseQueryError(
-                f"Failed to revoke all {self.model_name} for user: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
-
-    def _revoke_all_by_resource(self, session: Session, resource_id: str) -> List[TJunction]:
-        """Revoke all role assignments for a resource."""
-        try:
-            assignments = self._get_by_resource(session, resource_id)
-            
-            revoked = []
-            for assignment in assignments:
-                self._delete(session, assignment.id)
-                revoked.append(assignment)
-            
-            return revoked
-            
-        except Exception as e:
-            context = ErrorContext(
-                operation='revoke_all_by_resource',
-                component=self.model_name,
-                additional_info={self.resource_field: resource_id}
-            )
-            raise DatabaseQueryError(
-                f"Failed to revoke all {self.model_name} for resource: {str(e)}",
-                context=context,
-                severity=ErrorSeverity.HIGH
-            )
+        ).first()
+        
+        return junction
 
     def _check_user_has_role(self, session: Session, user_id: str, resource_id: str, required_role: Roles) -> bool:
         """
@@ -420,4 +172,271 @@ class BaseJunctionCRUD(BaseCRUD[TJunction], Generic[TJunction]):
         except Exception:
             # For security, return False on any error
             return False
+
+    def _add_user(self, session: Session, resource_id: str, user_id: str, role: Roles, granted_by: str) -> TJunction:
+        """
+        Add user to resource with specified role.
+        Only OWNER can add users.
+        """
+        resource_id = validators._validate_id(resource_id)
+        user_id = validators._validate_id(user_id)
+        granted_by = validators._validate_id(granted_by)
+        
+        has_permission = self._check_user_has_role(session, granted_by, resource_id, Roles.OWNER)
+        
+        if not has_permission:
+            context = ErrorContext(
+                operation='add_user',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, 'granted_by': granted_by}
+            )
+            raise ValidationError(
+                "Only resource owners can add users",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        return self._create(
+            session,
+            **{
+                self.user_field: user_id,
+                self.resource_field: resource_id,
+                'role': role,
+                'granted_by': granted_by
+            }
+        )
+
+    def _remove_user(self, session: Session, resource_id: str, user_id: str, removed_by: str) -> bool:
+        """
+        Remove user from resource.
+        Only OWNER can remove users.
+        Cannot remove the last owner.
+        """
+        resource_id = validators._validate_id(resource_id)
+        user_id = validators._validate_id(user_id)
+        removed_by = validators._validate_id(removed_by)
+        
+        has_permission = self._check_user_has_role(session, removed_by, resource_id, Roles.OWNER)
+        
+        if not has_permission:
+            context = ErrorContext(
+                operation='remove_user',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, 'removed_by': removed_by}
+            )
+            raise ValidationError(
+                "Only resource owners can remove users",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        user_role = self._get_by_user_and_resource(session, user_id, resource_id)
+        
+        if not user_role:
+            context = ErrorContext(
+                operation='remove_user',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, self.user_field: user_id}
+            )
+            raise ValidationError(
+                f"User does not have access to this resource",
+                context=context,
+                severity=ErrorSeverity.MEDIUM
+            )
+        
+        if user_role.role == Roles.OWNER:
+            owner_count = session.query(self.model).filter(
+                and_(
+                    getattr(self.model, self.resource_field) == resource_id,
+                    self.model.role == Roles.OWNER,
+                    self.model.is_deleted == False
+                )
+            ).count()
+            
+            if owner_count <= 1:
+                context = ErrorContext(
+                    operation='remove_user',
+                    component=self.model_name,
+                    additional_info={self.resource_field: resource_id, self.user_field: user_id}
+                )
+                raise ValidationError(
+                    "Cannot remove the last owner. Transfer ownership first.",
+                    context=context,
+                    severity=ErrorSeverity.HIGH
+                )
+        
+        self._delete(session, user_role.id)
+        return True
+
+    def _update_user_role(self, session: Session, resource_id: str, user_id: str, new_role: Roles, updated_by: str) -> TJunction:
+        """
+        Update user's role for a resource.
+        Only OWNER can update roles.
+        Cannot change the last owner's role.
+        """
+        resource_id = validators._validate_id(resource_id)
+        user_id = validators._validate_id(user_id)
+        updated_by = validators._validate_id(updated_by)
+        
+        has_permission = self._check_user_has_role(session, updated_by, resource_id, Roles.OWNER)
+        
+        if not has_permission:
+            context = ErrorContext(
+                operation='update_user_role',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, 'updated_by': updated_by}
+            )
+            raise ValidationError(
+                "Only resource owners can update user roles",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        user_role = self._get_by_user_and_resource(session, user_id, resource_id)
+        
+        if not user_role:
+            context = ErrorContext(
+                operation='update_user_role',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, self.user_field: user_id}
+            )
+            raise ValidationError(
+                f"User does not have access to this resource",
+                context=context,
+                severity=ErrorSeverity.MEDIUM
+            )
+        
+        if user_role.role == Roles.OWNER and new_role != Roles.OWNER:
+            owner_count = session.query(self.model).filter(
+                and_(
+                    getattr(self.model, self.resource_field) == resource_id,
+                    self.model.role == Roles.OWNER,
+                    self.model.is_deleted == False
+                )
+            ).count()
+            
+            if owner_count <= 1:
+                context = ErrorContext(
+                    operation='update_user_role',
+                    component=self.model_name,
+                    additional_info={self.resource_field: resource_id, self.user_field: user_id}
+                )
+                raise ValidationError(
+                    "Cannot demote the last owner. Transfer ownership first.",
+                    context=context,
+                    severity=ErrorSeverity.HIGH
+                )
+        
+        return self._update(session, user_role.id, role=new_role, granted_by=updated_by)
+
+    def _transfer_ownership(self, session: Session, resource_id: str, current_owner_id: str, new_owner_id: str) -> dict:
+        """
+        Transfer ownership from current owner to new owner.
+        Only current OWNER can transfer ownership.
+        Current owner becomes EDITOR after transfer.
+        """
+        resource_id = validators._validate_id(resource_id)
+        current_owner_id = validators._validate_id(current_owner_id)
+        new_owner_id = validators._validate_id(new_owner_id)
+        
+        current_owner_role = self._get_by_user_and_resource(session, current_owner_id, resource_id)
+        
+        if not current_owner_role or current_owner_role.role != Roles.OWNER:
+            context = ErrorContext(
+                operation='transfer_ownership',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, 'current_owner_id': current_owner_id}
+            )
+            raise ValidationError(
+                f"User is not the owner of this resource",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        self._update(session, current_owner_role.id, role=Roles.EDITOR, granted_by=current_owner_id)
+        
+        new_owner_role = self._get_by_user_and_resource(session, new_owner_id, resource_id)
+        
+        if new_owner_role:
+            self._update(session, new_owner_role.id, role=Roles.OWNER, granted_by=current_owner_id)
+        else:
+            self._create(
+                session,
+                **{
+                    self.user_field: new_owner_id,
+                    self.resource_field: resource_id,
+                    'role': Roles.OWNER,
+                    'granted_by': current_owner_id
+                }
+            )
+        
+        return {
+            'transferred': True,
+            self.resource_field: resource_id,
+            'previous_owner': current_owner_id,
+            'new_owner': new_owner_id
+        }
+
+    def _revoke_all_non_owners(self, session: Session, resource_id: str, revoked_by: str) -> dict:
+        """
+        Remove all non-owner users from resource.
+        Only OWNER can revoke all.
+        At least one OWNER must remain.
+        """
+        resource_id = validators._validate_id(resource_id)
+        revoked_by = validators._validate_id(revoked_by)
+        
+        has_permission = self._check_user_has_role(session, revoked_by, resource_id, Roles.OWNER)
+        
+        if not has_permission:
+            context = ErrorContext(
+                operation='revoke_all_non_owners',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id, 'revoked_by': revoked_by}
+            )
+            raise ValidationError(
+                "Only resource owners can revoke all users",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        owner_count = session.query(self.model).filter(
+            and_(
+                getattr(self.model, self.resource_field) == resource_id,
+                self.model.role == Roles.OWNER,
+                self.model.is_deleted == False
+            )
+        ).count()
+        
+        if owner_count < 1:
+            context = ErrorContext(
+                operation='revoke_all_non_owners',
+                component=self.model_name,
+                additional_info={self.resource_field: resource_id}
+            )
+            raise ValidationError(
+                "No owners found for this resource",
+                context=context,
+                severity=ErrorSeverity.HIGH
+            )
+        
+        non_owners = session.query(self.model).filter(
+            and_(
+                getattr(self.model, self.resource_field) == resource_id,
+                self.model.role != Roles.OWNER,
+                self.model.is_deleted == False
+            )
+        ).all()
+        
+        revoked_count = 0
+        for assignment in non_owners:
+            self._delete(session, assignment.id)
+            revoked_count += 1
+        
+        return {
+            'revoked': True,
+            self.resource_field: resource_id,
+            'revoked_count': revoked_count,
+            'remaining_owners': owner_count
+        }
 
