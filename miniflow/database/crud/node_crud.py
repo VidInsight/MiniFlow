@@ -59,3 +59,12 @@ class NodeCRUD(BaseCRUD[Node]):
         self._validate_no_extra_fields(self.model_fields, kwargs)
         node = super()._update(session, record_id, **kwargs)
         return node
+
+    def _get_by_workflow(self, session: Session, workflow_id: str, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Node]:
+        return self._get_all(
+            session,
+            skip=skip,
+            limit=limit,
+            include_deleted=include_deleted,
+            workflow_id=workflow_id
+        )

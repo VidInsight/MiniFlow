@@ -46,8 +46,6 @@ class WorkflowCRUD(BaseCRUD[Workflow]):
         """Update workflow with protected field restrictions."""
         self._validate_no_protected_fields(self.protected_fields, kwargs)
 
-        record_id = validators.validate_record_id(record_id, component=self.model_name)
-        
         # Validate name if being updated
         if 'name' in kwargs and kwargs['name']:
             kwargs['name'] = validators._validate_name(kwargs['name'])

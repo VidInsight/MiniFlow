@@ -357,7 +357,6 @@ class Execution(BaseModel):
     # Relationships - Parent workflow and trigger
     workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
     trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='SET NULL'), nullable=True)
-    correlation_id = Column(String(50), nullable=True, index=True)
 
     # Execution status and timing
     status = Column(Enum(ExecutionStatus), default=ExecutionStatus.PENDING, nullable=False, index=True)

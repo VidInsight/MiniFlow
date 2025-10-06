@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from .base_orchestrator import (
     BaseOrchestrator,
@@ -23,7 +23,7 @@ class UserOrchestrator(BaseOrchestrator):
 
     @with_orchestration_errors('create_user')
     @with_session
-    def create(self, session, **kwargs) -> Dict[str, Any]:
+    def create(self, session, *, created_by: str = None, **kwargs) -> Dict[str, Any]:
         """
         Yeni kullanıcı oluşturur.
         
@@ -50,18 +50,35 @@ class UserOrchestrator(BaseOrchestrator):
             ...     email="john@example.com"
             ... )
         """
-        user = self.user_crud._create(session, **kwargs)
+        # created_by optional for self-registration (user creates themselves)
+        # For admin-created users, pass admin's user_id
+        if created_by:
+            created_by = self._validate_user_exist(session, created_by)
+        
+        user = self.user_crud._create(
+            session,
+            created_by=created_by,
+            **kwargs
+        )
         return self._serialize_single_result(user)
 
     @with_orchestration_errors('update_user')
     @with_session
-    def update(self, session, record_id: str, **kwargs) -> Dict[str, Any]:
+    def update(self, session, *, record_id: str, updated_by: str, **kwargs) -> Dict[str, Any]:
         """
         Kullanıcı bilgilerini günceller.
         
         Note: hashed_password ve güvenlik alanları protected'dır.
         """
-        result = self.user_crud._update(session, record_id, **kwargs)
+        record_id = self._validate_user_exist(session, record_id)
+        updated_by = self._validate_user_exist(session, updated_by)
+        
+        result = self.user_crud._update(
+            session,
+            record_id,
+            updated_by=updated_by,
+            **kwargs
+        )
         return self._serialize_single_result(result)
 
     @with_orchestration_errors('activate_user')
@@ -139,4 +156,58 @@ class UserOrchestrator(BaseOrchestrator):
         
         result = self.user_crud._unlock_account(session, user_id)
         return self._serialize_single_result(result)
+
+    @with_orchestration_errors('get_user_by_id')
+    @with_session
+    def get_by_id(self, session, *, record_id: str, requesting_user_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get user by ID - Only own profile.
+        Users can only access their own user record for privacy.
+        """
+        record_id = self._validate_user_exist(session, record_id)
+        requesting_user_id = self._validate_user_exist(session, requesting_user_id)
+        
+        # Users can only view their own profile
+        if record_id != requesting_user_id:
+            self._raise_permission_denied('access', requesting_user_id, record_id, 'user')
+        
+        result = self.user_crud._get_by_id(
+            session,
+            record_id,
+            include_relationships=include_relationships
+        )
+        
+        return self._serialize_single_result(
+            result,
+            include_relationships=include_relationships,
+            exclude_fields=exclude_fields
+        )
+
+    @with_orchestration_errors('get_all_users')
+    @with_session
+    def get_all(self, session, *, user_id: str, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, exclude_fields: List[str] = None, **filters) -> List[Dict[str, Any]]:
+        """
+        Get all users - Only own record.
+        Users can only access their own user data.
+        Returns a list with single item (own profile).
+        """
+        user_id = self._validate_user_exist(session, user_id)
+        
+        from sqlalchemy import select
+        
+        # Only return the requesting user's own record
+        query = select(self.user_crud.model).where(
+            self.user_crud.model.id == user_id
+        )
+        
+        if not include_deleted:
+            query = query.where(self.user_crud.model.is_deleted == False)
+        
+        results = session.execute(query).scalars().all()
+        
+        return self._serialize_multiple_results(
+            results,
+            include_relationships=False,
+            exclude_fields=exclude_fields
+        )
 

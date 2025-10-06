@@ -18,18 +18,6 @@ class EdgeCRUD(BaseCRUD[Edge]):
         self.protected_fields = {'workflow_id'}
 
     # ========================================================================================= VALIDATION HELPERS =====
-    def _validate_condition_type(self, condition_type: Any) -> ConditionType:
-        if isinstance(condition_type, str):
-            try:
-                return ConditionType(condition_type)
-            except ValueError:
-                valid_types = [ct.value for ct in ConditionType]
-                context = ErrorContext(operation="validate_condition_type", additional_info={"provided_type": condition_type, "valid_types": valid_types})
-                raise ValidationError(f"Invalid condition type '{condition_type}'. Valid types: {valid_types}", context=context,severity=ErrorSeverity.MEDIUM)
-        else:
-            context = ErrorContext(operation="validate_condition_type", additional_info={"provided_type": str(type(condition_type))})
-            raise ValidationError(f"Condition type must be a string or ConditionType enum, got {type(condition_type)}", context=context, severity=ErrorSeverity.MEDIUM)
-
     def _validate_self_loop(self, from_node_id: str, to_node_id: str):
         """Validate that an edge does not create a self-loop."""
         if from_node_id == to_node_id:
@@ -61,28 +49,17 @@ class EdgeCRUD(BaseCRUD[Edge]):
     def _create(self, session: Session, **kwargs) -> Edge:
         """Create a new edge with validation."""
         self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
-        
-        # Validate workflow_id
-        workflow_id = kwargs['workflow_id']
-        kwargs['workflow_id'] = validators.validate_record_id(record_id=workflow_id, component=self.model_name)
-        
-        # Validate from_node_id
-        from_node_id = kwargs['from_node_id']
-        kwargs['from_node_id'] = validators.validate_record_id(record_id=from_node_id, component=self.model_name)
-        
-        # Validate to_node_id
-        to_node_id = kwargs['to_node_id']
-        kwargs['to_node_id'] = validators.validate_record_id(record_id=to_node_id, component=self.model_name)
-        
-        # CRITICAL: Validate self-loop (from_node_id != to_node_id)
+
+        workflow_id = kwargs.get('workflow_id')
+        from_node_id = kwargs.get('from_node_id')
+        to_node_id = kwargs.get('to_node_id')
+        condition_type = kwargs.get("condition_type")
+
+        #  Validate self-loop (from_node_id != to_node_id)
         self._validate_self_loop(from_node_id=from_node_id, to_node_id=to_node_id)
-        
-        # Validate condition_type
-        condition_type = kwargs.get("condition_type", ConditionType.SUCCESS)
-        kwargs['condition_type'] = self._validate_condition_type(condition_type)
-        
+
         # Check for duplicate edge (workflow_id + from_node_id + to_node_id + condition_type must be unique)
-        self._validate_edge_uniqueness(session, kwargs['workflow_id'], kwargs['from_node_id'], kwargs['to_node_id'], kwargs['condition_type'])
+        self._validate_edge_uniqueness(session, workflow_id, from_node_id, to_node_id, condition_type)
         
         self._validate_no_extra_fields(self.model_fields, kwargs)
         edge = super()._create(session, **kwargs)
@@ -101,19 +78,9 @@ class EdgeCRUD(BaseCRUD[Edge]):
         from_node_id = kwargs.get('from_node_id', edge.from_node_id)
         to_node_id = kwargs.get('to_node_id', edge.to_node_id)
         condition_type = kwargs.get('condition_type', edge.condition_type)
-        
-        # Validate IDs if being updated
-        if 'from_node_id' in kwargs:
-            kwargs['from_node_id'] = validators.validate_record_id(component=from_node_id, record_id=kwargs['from_node_id'])
-        if 'to_node_id' in kwargs:
-            kwargs['to_node_id'] = validators.validate_record_id(component=to_node_id, record_id=kwargs['to_node_id'])
-        
-        # CRITICAL: Validate self-loop (from_node_id != to_node_id)
+
+        # Validate self-loop (from_node_id != to_node_id)
         self._validate_self_loop(from_node_id=from_node_id, to_node_id=to_node_id)
-        
-        # Validate condition_type if being updated
-        if 'condition_type' in kwargs:
-            kwargs['condition_type'] = self._validate_condition_type(condition_type)
         
         # Check for duplicate edge if from/to/condition being changed
         if 'from_node_id' in kwargs or 'to_node_id' in kwargs or 'condition_type' in kwargs:
@@ -127,8 +94,6 @@ class EdgeCRUD(BaseCRUD[Edge]):
     def _get_next_nodes(self, session: Session, from_node_id: str, condition_type: Optional[ConditionType] = None) -> List[Edge]:
         """Get all outgoing edges from a node, optionally filtered by condition type."""
         try:
-            from_node_id = validators.validate_record_id(component=self.model_name, record_id=from_node_id)
-            
             query = session.query(self.model).filter(
                 and_(
                     self.model.from_node_id == from_node_id,
@@ -149,8 +114,7 @@ class EdgeCRUD(BaseCRUD[Edge]):
     def _get_previous_nodes(self, session: Session, to_node_id: str, condition_type: Optional[ConditionType] = None) -> List[Edge]:
         """Get all incoming edges to a node, optionally filtered by condition type."""
         try:
-            to_node_id = validators._validate_id(to_node_id)
-            
+
             query = session.query(self.model).filter(
                 and_(
                     self.model.to_node_id == to_node_id,
@@ -167,3 +131,12 @@ class EdgeCRUD(BaseCRUD[Edge]):
         except Exception as e:
             context = ErrorContext(operation='get_previous_nodes', component=self.model_name, additional_info={'to_node_id': to_node_id, 'condition_type': condition_type})
             raise DatabaseQueryError( f"Failed to get previous nodes: {str(e)}", context=context, severity=ErrorSeverity.HIGH)
+
+    def _get_by_workflow(self, session: Session, workflow_id: str, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Edge]:
+        return self._get_all(
+            session,
+            skip=skip,
+            limit=limit,
+            include_deleted=include_deleted,
+            workflow_id=workflow_id
+        )

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from .base_orchestrator import (
     BaseOrchestrator,
@@ -24,7 +24,7 @@ class AuthSessionOrchestrator(BaseOrchestrator):
 
     @with_orchestration_errors('create_auth_session')
     @with_session
-    def create(self, session, user_id: str, **kwargs) -> Dict[str, Any]:
+    def create(self, session, *, user_id: str, created_by: str, **kwargs) -> Dict[str, Any]:
         """
         Yeni authentication session oluşturur.
         
@@ -52,15 +52,29 @@ class AuthSessionOrchestrator(BaseOrchestrator):
             ... )
         """
         self._validate_user_exist(session, user_id)
+        created_by = self._validate_user_exist(session, created_by)
         
-        auth_session = self.auth_session_crud._create(session, user_id=user_id, **kwargs)
+        auth_session = self.auth_session_crud._create(
+            session,
+            user_id=user_id,
+            created_by=created_by,
+            **kwargs
+        )
         return self._serialize_single_result(auth_session)
 
     @with_orchestration_errors('update_auth_session')
     @with_session
-    def update(self, session, record_id: str, **kwargs) -> Dict[str, Any]:
+    def update(self, session, *, record_id: str, updated_by: str, **kwargs) -> Dict[str, Any]:
         """Session bilgilerini günceller."""
-        result = self.auth_session_crud._update(session, record_id, **kwargs)
+        updated_by = self._validate_user_exist(session, updated_by)
+        record_id = self._validate_auth_session_exist(session, record_id)
+        
+        result = self.auth_session_crud._update(
+            session,
+            record_id,
+            updated_by=updated_by,
+            **kwargs
+        )
         return self._serialize_single_result(result)
 
     @with_orchestration_errors('revoke_auth_session')
@@ -268,4 +282,65 @@ class AuthSessionOrchestrator(BaseOrchestrator):
         
         sessions = self.auth_session_crud._get_sessions_by_country(session, user_id, country_code)
         return self._serialize_list_result(sessions, len(sessions))
+
+    @with_orchestration_errors('get_auth_session_by_id')
+    @with_session
+    def get_by_id(self, session, *, record_id: str, user_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get auth session by ID - Only own sessions.
+        Users can only access their own authentication sessions.
+        """
+        record_id = self._validate_auth_session_exist(session, record_id)
+        user_id = self._validate_user_exist(session, user_id)
+        
+        # Get session to check ownership
+        auth_session = self.auth_session_crud._get_by_id(session, record_id)
+        if not auth_session:
+            return None
+        
+        # Users can only view their own sessions
+        if auth_session.user_id != user_id:
+            self._raise_permission_denied('access', user_id, record_id, 'auth_session')
+        
+        return self._serialize_single_result(
+            auth_session,
+            include_relationships=include_relationships,
+            exclude_fields=exclude_fields
+        )
+
+    @with_orchestration_errors('get_all_auth_sessions')
+    @with_session
+    def get_all(self, session, *, user_id: str, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, exclude_fields: List[str] = None, **filters) -> List[Dict[str, Any]]:
+        """
+        Get all auth sessions - Only own sessions.
+        Users can only access their own authentication sessions.
+        """
+        user_id = self._validate_user_exist(session, user_id)
+        
+        from sqlalchemy import select
+        
+        # Only return the requesting user's own sessions
+        query = select(self.auth_session_crud.model).where(
+            self.auth_session_crud.model.user_id == user_id
+        )
+        
+        if not include_deleted:
+            query = query.where(self.auth_session_crud.model.is_deleted == False)
+        
+        for key, value in filters.items():
+            if hasattr(self.auth_session_crud.model, key):
+                query = query.where(getattr(self.auth_session_crud.model, key) == value)
+        
+        if order_by and hasattr(self.auth_session_crud.model, order_by):
+            order_column = getattr(self.auth_session_crud.model, order_by)
+            query = query.order_by(order_column.desc() if order_desc else order_column)
+        
+        query = query.offset(skip).limit(limit)
+        results = session.execute(query).scalars().all()
+        
+        return self._serialize_multiple_results(
+            results,
+            include_relationships=False,
+            exclude_fields=exclude_fields
+        )
 

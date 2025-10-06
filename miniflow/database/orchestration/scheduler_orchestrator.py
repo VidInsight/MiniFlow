@@ -73,17 +73,28 @@ class SchedulerOrchestrator(BaseOrchestrator):
         return True
 
     def _create_execution_output(self, session, execution_result: Dict[str, Any]):
+        execution_id = execution_result['execution_id']
+        
+        # Get execution to extract created_by (owner)
+        execution = self.execution_crud._get_by_id(session, execution_id)
+        created_by = execution.created_by if execution and execution.created_by else None
+        
         output_data = {
-            'execution_id': execution_result['execution_id'],
+            'execution_id': execution_id,
             'workflow_id': execution_result['workflow_id'],
             'node_id': execution_result['node_id'],
             'status': ExecutionOutputStatus.SUCCESS if execution_result['status'] == 'SUCCESS' else ExecutionOutputStatus.FAILED,
-            'result_data': execution_result.get('result_data', {}) if execution_result.get('result_data') else {}
+            'result_data': execution_result.get('result_data', {}) if execution_result.get('result_data') else {},
+            'created_by': created_by  # Use execution owner as creator
         }
         
         self.execution_output_crud._create(session, **output_data)
 
     def _handle_failed_execution(self, session, execution_id: str, failed_node_id: str):
+        # Get execution to extract created_by (for audit trail)
+        execution = self.execution_crud._get_by_id(session, execution_id)
+        updated_by = execution.created_by if execution and execution.created_by else None
+        
         pending_inputs_nodes = self.execution_input_crud._get_all(session, execution_id=execution_id, limit=1000)
         completed_output_nodes = self.execution_output_crud._get_all(session, execution_id=execution_id, limit=1000)
 
@@ -108,7 +119,8 @@ class SchedulerOrchestrator(BaseOrchestrator):
         data = {
             'status': ExecutionStatus.FAILED,
             'results': results_dict,
-            'ended_at': datetime.now(timezone.utc)
+            'ended_at': datetime.now(timezone.utc),
+            'updated_by': updated_by  # System update on behalf of execution owner
         }
         self.execution_crud._update(session, execution_id, **data)
 
@@ -117,6 +129,10 @@ class SchedulerOrchestrator(BaseOrchestrator):
         return len(outgoing_edges) == 0
 
     def _handle_complete_execution(self, session, execution_id: str):
+        # Get execution to extract created_by (for audit trail)
+        execution = self.execution_crud._get_by_id(session, execution_id)
+        updated_by = execution.created_by if execution and execution.created_by else None
+        
         completed_output_nodes = self.execution_output_crud._get_all(session, execution_id=execution_id, limit=1000)
         
         results_dict = {}
@@ -125,11 +141,14 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 'status': output.status.value,
                 'result_data': output.result_data,
             }
+            # Hard delete ExecutionOutput after collecting results (system-managed cleanup)
+            self.execution_output_crud._delete(session, output.id)
         
         data = {
             'status': ExecutionStatus.COMPLETED,
             'results': results_dict,
-            'ended_at': datetime.now(timezone.utc)
+            'ended_at': datetime.now(timezone.utc),
+            'updated_by': updated_by  # System update on behalf of execution owner
         }
         self.execution_crud._update(session, execution_id, **data)
 
@@ -304,8 +323,10 @@ class SchedulerOrchestrator(BaseOrchestrator):
     def _resolve_environment_variable_reference(self, session, placeholder: str, workflow_id: str) -> Any:
         variable_name = placeholder[3:-2]
         
+        # Get environment variables for the specific workflow
         env_vars = self.envar_crud._get_all(
             session,
+            workflow_id=workflow_id,
             name=variable_name,
             limit=10
         )
@@ -361,14 +382,6 @@ class SchedulerOrchestrator(BaseOrchestrator):
         result = self.execution_crud._increment_running_nodes(session, execution_id, increment=count)
         return self._serialize_single_result(result)
 
-    @with_orchestration_errors('mark_nodes_as_executed')
-    @with_session
-    def mark_nodes_as_executed(self, session, execution_id: str, count: int = 1) -> Dict[str, Any]:
-        self._validate_execution_exist(session, execution_id)
-        
-        result = self.execution_crud._increment_executed_nodes(session, execution_id, increment=count)
-        return self._serialize_single_result(result)
-
     @with_orchestration_errors('remove_processed_execution_inputs')
     @with_session
     def remove_processed_execution_inputs(self, session, task_ids: List[str]) -> int:
@@ -385,3 +398,10 @@ class SchedulerOrchestrator(BaseOrchestrator):
                 
         return removed_count
 
+    @with_orchestration_errors('increase_wait_factor')
+    @with_session
+    def increase_wait_factor(self, session, execution_input_id: str) -> Dict[str, Any]:
+        self._validate_execution_input_exist(session, execution_input_id)
+
+        result = self.execution_input_crud._increase_wait_factor(session, execution_input_id)
+        return self._serialize_single_result(result)

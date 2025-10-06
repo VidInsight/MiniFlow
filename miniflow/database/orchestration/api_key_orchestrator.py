@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from .base_orchestrator import (
     BaseOrchestrator,
@@ -24,7 +24,7 @@ class ApiKeyOrchestrator(BaseOrchestrator):
 
     @with_orchestration_errors('create_api_key')
     @with_session
-    def create(self, session, user_id: str, **kwargs) -> Dict[str, Any]:
+    def create(self, session, *, user_id: str, created_by: str, **kwargs) -> Dict[str, Any]:
         """
         Yeni API key oluşturur.
         
@@ -54,15 +54,29 @@ class ApiKeyOrchestrator(BaseOrchestrator):
             ... )
         """
         self._validate_user_exist(session, user_id)
+        created_by = self._validate_user_exist(session, created_by)
         
-        api_key = self.api_key_crud._create(session, user_id=user_id, **kwargs)
+        api_key = self.api_key_crud._create(
+            session, 
+            user_id=user_id,
+            created_by=created_by,
+            **kwargs
+        )
         return self._serialize_single_result(api_key)
 
     @with_orchestration_errors('update_api_key')
     @with_session
-    def update(self, session, record_id: str, **kwargs) -> Dict[str, Any]:
+    def update(self, session, *, record_id: str, updated_by: str, **kwargs) -> Dict[str, Any]:
         """API key bilgilerini günceller."""
-        result = self.api_key_crud._update(session, record_id, **kwargs)
+        updated_by = self._validate_user_exist(session, updated_by)
+        record_id = self._validate_api_key_exist(session, record_id)
+        
+        result = self.api_key_crud._update(
+            session, 
+            record_id,
+            updated_by=updated_by,
+            **kwargs
+        )
         return self._serialize_single_result(result)
 
     @with_orchestration_errors('revoke_api_key')
@@ -201,4 +215,65 @@ class ApiKeyOrchestrator(BaseOrchestrator):
             return self._serialize_single_result(key)
         else:
             return {'found': False, 'key_prefix': key_prefix}
+
+    @with_orchestration_errors('get_api_key_by_id')
+    @with_session
+    def get_by_id(self, session, *, record_id: str, user_id: str, include_relationships: bool = False, exclude_fields: List[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get API key by ID - Only own API keys.
+        Users can only access their own API keys.
+        """
+        record_id = self._validate_api_key_exist(session, record_id)
+        user_id = self._validate_user_exist(session, user_id)
+        
+        # Get API key to check ownership
+        api_key = self.api_key_crud._get_by_id(session, record_id)
+        if not api_key:
+            return None
+        
+        # Users can only view their own API keys
+        if api_key.created_by != user_id:
+            self._raise_permission_denied('access', user_id, record_id, 'api_key')
+        
+        return self._serialize_single_result(
+            api_key,
+            include_relationships=include_relationships,
+            exclude_fields=exclude_fields
+        )
+
+    @with_orchestration_errors('get_all_api_keys')
+    @with_session
+    def get_all(self, session, *, user_id: str, skip: int = 0, limit: int = 100, order_by: Optional[str] = None, order_desc: bool = False, include_deleted: bool = False, exclude_fields: List[str] = None, **filters) -> List[Dict[str, Any]]:
+        """
+        Get all API keys - Only own API keys.
+        Users can only access their own API keys.
+        """
+        user_id = self._validate_user_exist(session, user_id)
+        
+        from sqlalchemy import select
+        
+        # Only return the requesting user's own API keys
+        query = select(self.api_key_crud.model).where(
+            self.api_key_crud.model.created_by == user_id
+        )
+        
+        if not include_deleted:
+            query = query.where(self.api_key_crud.model.is_deleted == False)
+        
+        for key, value in filters.items():
+            if hasattr(self.api_key_crud.model, key):
+                query = query.where(getattr(self.api_key_crud.model, key) == value)
+        
+        if order_by and hasattr(self.api_key_crud.model, order_by):
+            order_column = getattr(self.api_key_crud.model, order_by)
+            query = query.order_by(order_column.desc() if order_desc else order_column)
+        
+        query = query.offset(skip).limit(limit)
+        results = session.execute(query).scalars().all()
+        
+        return self._serialize_multiple_results(
+            results,
+            include_relationships=False,
+            exclude_fields=exclude_fields
+        )
 
