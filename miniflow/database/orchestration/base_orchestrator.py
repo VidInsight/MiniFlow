@@ -20,6 +20,7 @@ from ..crud import ExecutionCRUD
 from ..crud import ExecutionInputCRUD
 from ..crud import ExecutionOutputCRUD
 from ..crud import TriggerCRUD
+from ..crud import WorkflowTriggerCRUD
 from ..crud import UserWorkflowRoleCRUD
 from ..crud import UserEnvarRoleCRUD
 from ..crud import UserFileRoleCRUD
@@ -450,6 +451,7 @@ class BaseOrchestrator:
         self.execution_input_crud = ExecutionInputCRUD()
         self.execution_output_crud = ExecutionOutputCRUD()
         self.trigger_crud = TriggerCRUD()
+        self.workflow_trigger_crud = WorkflowTriggerCRUD()
         self.user_workflow_role_crud = UserWorkflowRoleCRUD()
         self.user_envar_role_crud = UserEnvarRoleCRUD()
         self.user_file_role_crud = UserFileRoleCRUD()
@@ -645,6 +647,24 @@ class BaseOrchestrator:
             context = ErrorContext(operation="validate_trigger", additional_info={"trigger_id": record_id})
             raise ValidationError(f"Trigger '{record_id}' not found", context=context, severity=ErrorSeverity.HIGH)
         return record_id
+    
+    def _validate_workflow_trigger_exist(self, session, trigger_id, workflow_id):
+        """Validate that a workflow-trigger assignment exists."""
+        trigger_id = validators.validate_record_id(trigger_id, self.__class__.__name__)
+        workflow_id = validators.validate_record_id(workflow_id, self.__class__.__name__)
+        
+        assignment = self.workflow_trigger_crud._get_by_trigger_and_workflow(session, trigger_id, workflow_id)
+        if not assignment:
+            context = ErrorContext(
+                operation="validate_workflow_trigger", 
+                additional_info={"trigger_id": trigger_id, "workflow_id": workflow_id}
+            )
+            raise ValidationError(
+                f"Trigger '{trigger_id}' is not assigned to workflow '{workflow_id}'", 
+                context=context, 
+                severity=ErrorSeverity.HIGH
+            )
+        return assignment
 
     def _validate_script_exist(self, session, record_id):
         record_id = validators.validate_record_id(record_id, self.__class__.__name__)

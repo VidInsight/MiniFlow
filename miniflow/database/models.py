@@ -2,7 +2,7 @@ import uuid
 from typing import cast, Iterable, Any
 from datetime import datetime, timezone
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint, event
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Float, Boolean, Enum, UniqueConstraint, CheckConstraint, event, ForeignKeyConstraint
 
 from .enums import *
 
@@ -286,7 +286,7 @@ class Workflow(BaseModel):
     nodes = relationship("Node", back_populates="workflow", cascade="all, delete-orphan")
     edges = relationship("Edge", back_populates="workflow", cascade="all, delete-orphan")
     executions = relationship("Execution", back_populates="workflow", cascade="all, delete-orphan")
-    triggers = relationship("Trigger", back_populates="workflow", cascade="all, delete-orphan")
+    trigger_assignments = relationship("WorkflowTrigger", back_populates="workflow", cascade="all, delete-orphan")
     user_roles = relationship("UserWorkflowRole", back_populates="workflow", cascade="all, delete-orphan")
     execution_inputs = relationship("ExecutionInput", back_populates="workflow", cascade="all, delete-orphan")
     execution_outputs = relationship("ExecutionOutput", back_populates="workflow", cascade="all, delete-orphan")
@@ -432,15 +432,12 @@ class ExecutionOutput(BaseModel):
 
 
 class Trigger(BaseModel):
-    """Workflow triggers for automated execution"""
+    """Reusable triggers for automated workflow execution"""
     __prefix__ = "TR"
     __tablename__ = 'triggers'
-
-    # Relationships - Parent workflow
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
     
     # Trigger configuration - Basic information
-    name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
     trigger_type = Column(Enum(TriggerType), nullable=False, index=True)
     config = Column(JSON, default=lambda: {}, nullable=False)
@@ -452,8 +449,25 @@ class Trigger(BaseModel):
     trigger_count = Column(Integer, default=0, nullable=False)
 
     # Relationships
-    workflow = relationship("Workflow", back_populates="triggers")
+    workflow_assignments = relationship("WorkflowTrigger", back_populates="trigger", cascade="all, delete-orphan")
     executions = relationship("Execution", back_populates="trigger")
+
+
+class WorkflowTrigger(BaseModel):
+    """Junction table for Trigger-Workflow many-to-many relationship"""
+    __prefix__ = "WT"
+    __tablename__ = 'workflow_triggers'
+    __table_args__ = (
+        UniqueConstraint('trigger_id', 'workflow_id', name='_trigger_workflow_unique'),
+    )
+
+    # Relationships
+    trigger_id = Column(String(20), ForeignKey('triggers.id', ondelete='CASCADE'), nullable=False, index=True)
+    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Relationships
+    trigger = relationship("Trigger", back_populates="workflow_assignments")
+    workflow = relationship("Workflow", back_populates="trigger_assignments")
 
 
 class User(BaseModel):
@@ -517,80 +531,78 @@ class Permission(BaseModel):
     required_plan = Column(Enum(Plans), nullable=False)
 
 
-class UserWorkflowRole(BaseModel):
+class BaseRoleAssignmentModel(BaseModel):
+    """Abstract base for user-to-entity role assignments (junction tables)."""
+    __abstract__ = True
+    __allow_unmapped__ = True
+
+    # Common role assignment fields
+    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(Enum(Roles), nullable=False, index=True)
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    # Generic target record id; concrete subclasses bind this to a specific table via FK constraint
+    record_id = Column(String(20), nullable=False, index=True)
+
+
+class UserWorkflowRole(BaseRoleAssignmentModel):
     """User roles for workflow access control"""
     __prefix__ = "UW"
     __tablename__ = 'user_workflow_roles'
 
+    __table_args__ = (
+        ForeignKeyConstraint(['record_id'], ['workflows.id'], ondelete='CASCADE'),
+    )
     # Relationships - User and workflow
-    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    workflow_id = Column(String(20), ForeignKey('workflows.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(Enum(Roles), nullable=False, index=True)
-
-    # Access control - Role assignment tracking
-    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys="[UserWorkflowRole.user_id]", back_populates="workflow_roles")
-    workflow = relationship("Workflow", back_populates="user_roles")
+    workflow = relationship("Workflow", back_populates="user_roles", foreign_keys="[UserWorkflowRole.record_id]")
 
 
-class UserEnvarRole(BaseModel):
+class UserEnvarRole(BaseRoleAssignmentModel):
     """User roles for environment variable access control"""
     __prefix__ = "UE"
     __tablename__ = 'user_envar_roles'
 
+    __table_args__ = (
+        ForeignKeyConstraint(['record_id'], ['environment_variables.id'], ondelete='CASCADE'),
+    )
     # Relationships - User and environment variable
-    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    envar_id = Column(String(20), ForeignKey('environment_variables.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(Enum(Roles), nullable=False, index=True)
-
-    # Access control - Role assignment tracking
-    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys="[UserEnvarRole.user_id]", back_populates="envar_roles")
-    environment_variable = relationship("EnvironmentVariable", back_populates="user_roles")
+    environment_variable = relationship("EnvironmentVariable", back_populates="user_roles", foreign_keys="[UserEnvarRole.record_id]")
     
 
-class UserFileRole(BaseModel):
+class UserFileRole(BaseRoleAssignmentModel):
     """User roles for file upload access control"""
     __prefix__ = "UF"
     __tablename__ = 'user_file_roles'
 
+    __table_args__ = (
+        ForeignKeyConstraint(['record_id'], ['file_uploads.id'], ondelete='CASCADE'),
+    )
     # Relationships - User and file upload
-    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    file_id = Column(String(20), ForeignKey('file_uploads.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(Enum(Roles), nullable=False, index=True)
-
-    # Access control - Role assignment tracking
-    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys="[UserFileRole.user_id]", back_populates="file_roles")
-    file_upload = relationship("FileUpload", back_populates="user_roles")
+    file_upload = relationship("FileUpload", back_populates="user_roles", foreign_keys="[UserFileRole.record_id]")
     
 
-class UserExecutionRole(BaseModel):
+class UserExecutionRole(BaseRoleAssignmentModel):
     """User roles for execution access control"""
     __prefix__ = "UX"
     __tablename__ = 'user_execution_roles'
 
+    __table_args__ = (
+        ForeignKeyConstraint(['record_id'], ['executions.id'], ondelete='CASCADE'),
+    )
     # Relationships - User and execution
-    user_id = Column(String(20), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    execution_id = Column(String(20), ForeignKey('executions.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(Enum(Roles), nullable=False, index=True)
-
-    # Access control - Role assignment tracking
-    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    granted_by = Column(String(20), ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
     # Relationships
     user = relationship("User", foreign_keys="[UserExecutionRole.user_id]", back_populates="execution_roles")
-    execution = relationship("Execution", back_populates="user_roles")
+    execution = relationship("Execution", back_populates="user_roles", foreign_keys="[UserExecutionRole.record_id]")
 
 
 class ApiKey(BaseModel):

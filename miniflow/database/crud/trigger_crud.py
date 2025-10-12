@@ -14,21 +14,35 @@ class TriggerCRUD(BaseCRUD[Trigger]):
     def __init__(self):
         super().__init__(Trigger)
         self.model_fields = {column.name for column in Trigger.__table__.columns}
-        self.required_fields = {'workflow_id', 'name', 'trigger_type'}
-        self.protected_fields = {'workflow_id', 'trigger_type'}
+        self.required_fields = {'name', 'trigger_type'}
+        self.protected_fields = {'trigger_type'}  # workflow_id removed - now managed via WorkflowTrigger
 
     # ============================================================================================ CRUD OPERATIONS =====
     def _create(self, session: Session, **kwargs) -> Trigger:
-        """Create a new trigger with validation."""
-        self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
+        """
+        Create a new reusable trigger with validation.
         
-        # Validate workflow_id
-        workflow_id = kwargs['workflow_id']
-        kwargs['workflow_id'] = validators._validate_id(workflow_id)
+        NOTE: This creates only the Trigger. To assign it to workflows,
+        use WorkflowTriggerCRUD after creation.
+        
+        Args:
+            session: Database session
+            name: Unique trigger name
+            trigger_type: Type of trigger (API, SCHEDULED, WEBHOOK)
+            config: Trigger configuration (cron, endpoint, etc.)
+            input_mapping: Input parameter mapping (optional)
+            is_enabled: Whether trigger is active (default: True)
+            **kwargs: Additional fields
+            
+        Returns:
+            Trigger: Created trigger instance
+        """
+        self._validate_required_fields_in_kwargs(self.required_fields, kwargs)
         
         # Validate name and check uniqueness
         name = kwargs['name']
         name = validators._validate_name(name)
+        kwargs['name'] = name
 
         # Validate trigger_type
         trigger_type = kwargs.get('trigger_type')

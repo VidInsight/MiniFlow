@@ -17,6 +17,7 @@ from .permission_crud import PermissionCRUD
 from .api_key_crud import ApiKeyCRUD
 from .auth_session_crud import AuthSessionCRUD
 from .trigger_crud import TriggerCRUD
+from .workflow_trigger_crud import WorkflowTriggerCRUD
 from .execution_crud import ExecutionCRUD
 from .execution_input_crud import ExecutionInputCRUD
 from .execution_output_crud import ExecutionOutputCRUD
@@ -39,6 +40,7 @@ __all__ = [
     'ApiKeyCRUD',
     'AuthSessionCRUD',
     'TriggerCRUD',
+    'WorkflowTriggerCRUD',
     'ExecutionCRUD',
     'ExecutionInputCRUD',
     'ExecutionOutputCRUD',
